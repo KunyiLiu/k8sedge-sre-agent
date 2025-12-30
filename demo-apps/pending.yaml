@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pending
+  namespace: demo-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pending
+  template:
+    metadata:
+      labels:
+        app: pending
+    spec:
+      containers:
+      - name: pending
+        image: busybox
+        command: ["sleep", "3600"]
+        resources:
+          requests:
+            cpu: "100"
+            memory: "500Gi"

@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oom
+  namespace: demo-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oom
+  template:
+    metadata:
+      labels:
+        app: oom
+    spec:
+      containers:
+      - name: oom
+        image: busybox
+        command: ["sh", "-c", "stress-ng --vm 1 --vm-bytes 200M"]
+        resources:
+          limits:
+            memory: "50Mi"

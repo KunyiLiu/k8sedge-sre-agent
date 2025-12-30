@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: liveness-crash
+  namespace: demo-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: liveness-crash
+  template:
+    metadata:
+      labels:
+        app: liveness-crash
+    spec:
+      containers:
+      - name: busybox
+        image: busybox
+        # The app is technically fine (it's just sleeping)
+        command: ["sh", "-c", "sleep 3600"]
+        # BUT, the Liveness Probe will fail
+        livenessProbe:
+          exec:
+            command:
+            - cat
+            - /tmp/healthy
+          initialDelaySeconds: 5
+          periodSeconds: 5

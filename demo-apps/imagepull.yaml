@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: imagepull
+  namespace: demo-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: imagepull
+  template:
+    metadata:
+      labels:
+        app: imagepull
+    spec:
+      containers:
+      - name: imagepull
+        image: nonexistent/image:latest
