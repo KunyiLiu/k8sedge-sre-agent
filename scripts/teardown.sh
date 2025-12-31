@@ -13,4 +13,8 @@ kubectl delete -f "$ROOT_DIR/demo-apps/pending.yaml" -n demo-apps || true
 
 kubectl delete -f "$ROOT_DIR/demo-apps/demo-apps-namespace.yaml" || true
 
+echo "Deleting SRE Agent workloads..."
+
+kubectl delete namespace sreagent || true
+
 echo "Teardown complete"

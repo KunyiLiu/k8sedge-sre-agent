@@ -6,6 +6,8 @@ echo "Creating namespaces..."
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 kubectl apply -f "$ROOT_DIR/demo-apps/demo-apps-namespace.yaml"
+# Apply sreagent namespace
+kubectl apply -f "$ROOT_DIR/health-ui/k8s/sreagent-namespace.yaml"
 
 echo "Deploying demo failure workloads..."
 
@@ -33,5 +35,16 @@ read -p "Deploy pending.yaml? (y/n): " resp
 if [[ $resp == "y" ]]; then
   kubectl apply -f "$ROOT_DIR/demo-apps/pending.yaml" -n demo-apps
 fi
+
+echo "Deploying SRE Agent workloads..."
+
+# Deploy backend
+kubectl apply -f "$ROOT_DIR/health-ui/k8s/sreagent-backend.yaml"
+
+# Wait for backend deployment to be ready
+kubectl rollout status deployment/sreagent-backend -n sreagent --timeout=60s
+
+# Deploy frontend
+kubectl apply -f "$ROOT_DIR/health-ui/k8s/sreagent-frontend.yaml"
 
 echo "Setup complete"
