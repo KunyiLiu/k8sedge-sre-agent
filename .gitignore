@@ -1,0 +1,117 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# VS Code
+.vscode/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Docker
+*.log
+docker-compose.override.yml
+
+# macOS
+.DS_Store
+
+# Node
+node_modules/
+
+# Python virtualenv
+venv/
+ENV/
+
+# Lock and dependency files
+poetry.lock
+Pipfile.lock
+
+# Ignore local environment variables
+.env
+.env.*
+
+# Ignore test output
+*.out
+
+# Ignore backup files
+*~
+*.swp
+*.swo
+
+# Ignore coverage
+.coverage
+
+# Ignore compiled files
+*.pyo
+
+# Ignore build artifacts
+*.o
+*.a
+*.so
+*.exe
+*.dll
+*.obj
+*.pyc
+
+# Ignore health-ui/frontend build
+health-ui/frontend/build/
+health-ui/frontend/dist/
+
+# Ignore backend __pycache__
+health-ui/backend/app/__pycache__/
+
+# Ignore scripts output
+scripts/*.log
+
+# DO NOT ignore these (they are your new source of truth)
+!pyproject.toml
+!uv.lock
