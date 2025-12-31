@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sreagent-backend
+  namespace: sreagent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sreagent-backend
+  template:
+    metadata:
+      labels:
+        app: sreagent-backend
+    spec:
+      containers:
+      - name: sreagent-backend
+        image: kunyiliu1022/sreagent-backend:latest
+        ports:
+        - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sreagent-backend
+  namespace: sreagent
+spec:
+  selector:
+    app: sreagent-backend
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP

@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sreagent
+  labels:
+    app.kubernetes.io/name: sreagent
+    app.kubernetes.io/part-of: sreagent-platform
+    app.kubernetes.io/component: control-plane

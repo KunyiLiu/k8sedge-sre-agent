@@ -1,0 +1,14 @@
+services:           # Defines the "pieces" of your app
+  sreagent-backend:          # The name of the service (also its DNS name!)
+    build: ./backend # Where to find the Dockerfile to build this
+    image: kunyiliu1022/sreagent-backend:latest
+    ports:
+      - "8000:8000" # Maps Mac port 8000 -> Container port 8000
+
+  sreagent-frontend:
+    build: ./frontend
+    image: kunyiliu1022/sreagent-frontend:latest
+    ports:
+      - "8080:80"   # Maps Mac port 8080 -> Nginx port 80
+    depends_on:     # Ensures the backend starts before the frontend
+      - sreagent-backend
