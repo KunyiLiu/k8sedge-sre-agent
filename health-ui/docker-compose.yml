@@ -4,6 +4,11 @@ services:           # Defines the "pieces" of your app
     image: kunyiliu1022/sreagent-backend:latest
     ports:
       - "8000:8000" # Maps Mac port 8000 -> Container port 8000
+    environment: # load environment variables from .env file
+      - AZURE_CLIENT_ID
+      - AZURE_TENANT_ID
+      - AZURE_CLIENT_SECRET
+      - PROMETHEUS_QUERY_ENDPOINT
 
   sreagent-frontend:
     build: ./frontend

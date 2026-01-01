@@ -1,3 +1,12 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-reader-sa
+  namespace: sreagent
+  annotations:
+    # 1. Replace this with the Client ID from your Azure Portal/CLI
+    azure.workload.identity/client-id: "f0ae3cdf-e852-44e8-a3cf-d8acc158b7c4"
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -12,12 +21,20 @@ spec:
     metadata:
       labels:
         app: sreagent-backend
+        # 2. This label tells AKS to inject the Azure Identity token
+        azure.workload.identity/use: "true"
     spec:
+      # 3. This tells the pod to use the identity permissions
+      serviceAccountName: prometheus-reader-sa
       containers:
       - name: sreagent-backend
         image: kunyiliu1022/sreagent-backend:latest
         ports:
         - containerPort: 8000
+        # It is good practice to explicitly pass the Workspace ID as an env var
+        env:
+        - name: PROMETHEUS_WORKSPACE_ID
+          value: "defaultazuremonitorworkspace-wus2"
 ---
 apiVersion: v1
 kind: Service
