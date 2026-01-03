@@ -2,7 +2,7 @@ import time
 from datetime import datetime
 import httpx
 from azure.identity import DefaultAzureCredential
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Body
 from app.models import HealthIssue
 from typing import List, Optional
 
@@ -60,7 +60,7 @@ async def fetch_prom(query: str, token: str):
             return []
         return response.json().get("data", {}).get("result", [])
 
-@router.get("/api/health/issues", response_model=List[HealthIssue])
+@router.get("/health/issues", response_model=List[HealthIssue])
 async def get_all_health_issues(namespace: Optional[str] = Query(None, description="Namespace to filter issues by")):
     """
     Returns a list of health issues for pods, nodes, and deployments.
@@ -106,16 +106,17 @@ async def get_all_health_issues(namespace: Optional[str] = Query(None, descripti
     for item in pod_results:
         labels = item["metric"]
         reason = labels.get("reason", "Pending")
-        # The value is the 'kube_pod_created' timestamp due to the * join
         created_at = float(item["value"][1])
-        
+        timespan = int(now - created_at)
         all_issues.append(HealthIssue(
             issueType=reason,
             severity="High",
+            resourceType="Pod",
             namespace=labels.get("namespace"),
             resourceName=labels.get("pod"),
             container=labels.get("container"),
-            unhealthySince=format_duration(now - created_at),
+            unhealthySince=format_duration(timespan),
+            unhealthyTimespan=timespan,
             message=f"Container is in {reason} state."
         ))
 
@@ -123,15 +124,18 @@ async def get_all_health_issues(namespace: Optional[str] = Query(None, descripti
     for item in node_results:
         node_name = item["metric"]["node"]
         try:
-            since_res = await fetch_prom(f'kube_node_status_condition_last_transition_time{{node=\"{node_name}\", condition="Ready"}}', token)
+            since_res = await fetch_prom(f'kube_node_status_condition_last_transition_time{{node="{node_name}", condition="Ready"}}', token)
             start_time = float(since_res[0]["value"][1]) if since_res else now
         except Exception:
             start_time = now
+        timespan = int(now - start_time)
         all_issues.append(HealthIssue(
             issueType="NodeNotReady",
             severity="Critical",
+            resourceType="Node",
             resourceName=node_name,
-            unhealthySince=format_duration(now - start_time),
+            unhealthySince=format_duration(timespan),
+            unhealthyTimespan=timespan,
             message="Node is not responding to heartbeats."
         ))
 
@@ -140,10 +144,19 @@ async def get_all_health_issues(namespace: Optional[str] = Query(None, descripti
         all_issues.append(HealthIssue(
             issueType="DeploymentDegraded",
             severity="High",
+            resourceType="Deployment",
             namespace=item["metric"].get("namespace"),
             resourceName=item["metric"]["deployment"],
-            unhealthySince="Check Pods", # Deployments don't have a simple transition metric
+            unhealthySince="Check Pods",
+            unhealthyTimespan=0,
             message="Desired replicas do not match available replicas."
         ))
 
     return all_issues
+
+@router.post("/health/diagnostic")
+async def run_diagnostic(issue: HealthIssue = Body(...)):
+    """
+    Placeholder diagnostic API. Accepts a HealthIssue as POST body and returns a dummy result.
+    """
+    return {"status": "received", "issue": issue.dict(), "diagnostic": "Not implemented"}
