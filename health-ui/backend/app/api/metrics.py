@@ -3,7 +3,7 @@ from datetime import datetime
 import httpx
 from azure.identity import DefaultAzureCredential
 from fastapi import APIRouter, HTTPException, Query, Body
-from app.models import HealthIssue
+from app.models import HealthIssue, ResourceType
 from typing import List, Optional
 
 router = APIRouter()
@@ -111,7 +111,7 @@ async def get_all_health_issues(namespace: Optional[str] = Query(None, descripti
         all_issues.append(HealthIssue(
             issueType=reason,
             severity="High",
-            resourceType="Pod",
+            resourceType=ResourceType.Pod,
             namespace=labels.get("namespace"),
             resourceName=labels.get("pod"),
             container=labels.get("container"),
@@ -132,7 +132,7 @@ async def get_all_health_issues(namespace: Optional[str] = Query(None, descripti
         all_issues.append(HealthIssue(
             issueType="NodeNotReady",
             severity="Critical",
-            resourceType="Node",
+            resourceType=ResourceType.Node,
             resourceName=node_name,
             unhealthySince=format_duration(timespan),
             unhealthyTimespan=timespan,
@@ -144,7 +144,7 @@ async def get_all_health_issues(namespace: Optional[str] = Query(None, descripti
         all_issues.append(HealthIssue(
             issueType="DeploymentDegraded",
             severity="High",
-            resourceType="Deployment",
+            resourceType=ResourceType.Deployment,
             namespace=item["metric"].get("namespace"),
             resourceName=item["metric"]["deployment"],
             unhealthySince="Check Pods",
