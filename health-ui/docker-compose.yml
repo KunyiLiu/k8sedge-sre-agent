@@ -9,6 +9,7 @@ services:           # Defines the "pieces" of your app
       - AZURE_TENANT_ID
       - AZURE_CLIENT_SECRET
       - PROMETHEUS_QUERY_ENDPOINT
+      - AZURE_AI_PROJECT_ENDPOINT
 
   sreagent-frontend:
     build: ./frontend
