@@ -153,10 +153,3 @@ async def get_all_health_issues(namespace: Optional[str] = Query(None, descripti
         ))
 
     return all_issues
-
-@router.post("/health/diagnostic")
-async def run_diagnostic(issue: HealthIssue = Body(...)):
-    """
-    Placeholder diagnostic API. Accepts a HealthIssue as POST body and returns a dummy result.
-    """
-    return {"status": "received", "issue": issue.dict(), "diagnostic": "Not implemented"}
