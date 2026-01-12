@@ -3,6 +3,7 @@ import { FiRefreshCw } from "react-icons/fi";
 import {
   fetchHealthDiagnostic,
   fetchHealthIssues,
+  fetchTestMetric,
   type HealthIssue,
   type AgentState,
   type MessageItem,
@@ -28,7 +29,7 @@ function App() {
   const loadIssues = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchHealthIssues();
+      const data = await fetchTestMetric();
       setIssues(data);
     } finally {
       setLoading(false);
@@ -37,7 +38,7 @@ function App() {
 
   useEffect(() => {
     loadIssues();
-    const interval = setInterval(loadIssues, 30000);
+    const interval = setInterval(loadIssues, 3000000);
     return () => clearInterval(interval);
   }, [loadIssues]);
 
