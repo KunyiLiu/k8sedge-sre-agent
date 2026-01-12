@@ -166,12 +166,13 @@ async def workflow_ws(ws: WebSocket):
 
         issue = HealthIssue(**init_msg["issue"])
         key = issue_key(issue)
+        logger.info("WS start_workflow", extra={"issue": issue.model_dump(), "key": key})
 
         project_client = await get_project_client()
         assert _endpoint and _credential
         agents_client = AgentsClient(endpoint=_endpoint, credential=_credential)
 
-        diag_agent = create_diag_agent(project_client, _credential)
+        diag_agent = await create_diag_agent(project_client, agents_client, _credential)
         start_input = f"Investigate why {issue.resourceType} '{issue.resourceName}' is unhealthy: {issue.issueType}."
         diag_thread = diag_agent.get_new_thread()
         WORKFLOW_STORE[key] = {"diag_thread_id": diag_thread.service_thread_id, "sol_thread_id": None}
@@ -218,7 +219,7 @@ async def workflow_ws(ws: WebSocket):
                     break
 
             elif state and state.next_action == "handoff_to_solution_agent":
-                sol_agent = create_sol_agent(project_client, _credential)
+                sol_agent = await create_sol_agent(project_client, agents_client, _credential)
                 sol_thread = sol_agent.get_new_thread()
                 root_cause = state.root_cause or ""
                 await sol_agent.run(f"Fix this: {root_cause}", thread=sol_thread)

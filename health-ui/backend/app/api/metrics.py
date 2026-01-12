@@ -15,28 +15,50 @@ PROMETHEUS_TOKEN_SCOPE = "https://prometheus.monitor.azure.com/.default"
 # Initialize credential (this will automatically use your ServiceAccount token in AKS)
 credential = DefaultAzureCredential()
 
-@router.get("/metrics/test")
-async def query_prometheus():
-    # 2. Get the Azure Token for Prometheus
-    # The 'scope' for Managed Prometheus is always this specific URL
-    token = credential.get_token(PROMETHEUS_TOKEN_SCOPE)
+@router.get("/metrics/test", response_model=List[HealthIssue])
+async def mock_prometheus():
+    """Return a mocked list of pod-related HealthIssue items.
 
-    async with httpx.AsyncClient() as client:
-        # 3. Construct the PromQL query
-        # 'up' is the standard metric to check if targets are being scraped
-        params = {"query": "up"} 
-        headers = {"Authorization": f"Bearer {token.token}"}
-
-        response = await client.get(
-            f"{PROMETHEUS_QUERY_ENDPOINT}/api/v1/query",
-            params=params,
-            headers=headers
-        )
-
-    if response.status_code != 200:
-        raise HTTPException(status_code=response.status_code, detail=response.text)
-
-    return response.json()
+    Useful for local testing without querying Managed Prometheus.
+    """
+    now = time.time()
+    # Mock a few pod issues with different reasons
+    issues: List[HealthIssue] = [
+        HealthIssue(
+            issueType="CrashLoopBackOff",
+            severity="High",
+            resourceType=ResourceType.Pod,
+            namespace="default",
+            resourceName="web-0",
+            container="web",
+            unhealthySince=format_duration(3600),
+            unhealthyTimespan=3600,
+            message="Container is in CrashLoopBackOff state."
+        ),
+        HealthIssue(
+            issueType="ImagePullBackOff",
+            severity="High",
+            resourceType=ResourceType.Pod,
+            namespace="default",
+            resourceName="api-1",
+            container="api",
+            unhealthySince=format_duration(5400),
+            unhealthyTimespan=5400,
+            message="Container failed to pull image (ImagePullBackOff)."
+        ),
+        HealthIssue(
+            issueType="Pending",
+            severity="High",
+            resourceType=ResourceType.Pod,
+            namespace="kube-system",
+            resourceName="scheduler-2",
+            container="scheduler",
+            unhealthySince=format_duration(900),
+            unhealthyTimespan=900,
+            message="Pod is pending scheduling due to insufficient resources."
+        ),
+    ]
+    return issues
 
 def format_duration(seconds: float) -> str:
     if seconds < 0: seconds = 0
