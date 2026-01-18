@@ -15,4 +15,5 @@ dependencies = [
     "openai>=2.14.0",
     "python-dotenv>=1.2.1",
     "uvicorn>=0.40.0",
+    "kubernetes>=28.1.0",
 ]
