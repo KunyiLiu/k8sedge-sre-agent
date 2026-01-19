@@ -68,9 +68,8 @@ async def main():
             chat_client=AzureAIAgentClient(
                 project_client=project_client,
                 credential=credential,
-                model_deployment_name="gpt-5-mini"
+                model_deployment_name="gpt-4.1-mini"
             ),
-            model="gpt-5-mini",
             name="Diagnostic_Agent",
             tools=[get_pod_details, report_root_cause],
             instructions=(
@@ -90,10 +89,9 @@ async def main():
             chat_client=AzureAIAgentClient(
                 project_client=project_client,
                 credential=credential,
-                model_deployment_name="gpt-5-mini"
+                model_deployment_name="gpt-4.1-mini"
             ),
             name="Solution_Agent",
-            model="gpt-5-mini",
             instructions="You are a Solution Architect. Based on the [FINAL_DIAGNOSIS], provide a kubectl fix and an escalation email summary. " \
             "If you are unsure or missing context, state exactly what information is missing instead of remaining silent.",
             temperature=1.0,
