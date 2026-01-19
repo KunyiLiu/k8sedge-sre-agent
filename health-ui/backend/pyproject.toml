@@ -16,4 +16,6 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "uvicorn>=0.40.0",
     "kubernetes>=28.1.0",
+    "azure-storage-blob>=12.28.0",
+    "python-frontmatter>=1.1.0",
 ]
