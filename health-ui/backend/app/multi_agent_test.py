@@ -3,26 +3,21 @@ import asyncio
 import json
 from pathlib import Path
 from typing import List, Dict, Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from dotenv import load_dotenv
 
 # Azure AI Agent Framework
 from azure.identity.aio import DefaultAzureCredential
 from azure.ai.projects.aio import AIProjectClient
 from azure.ai.agents.aio import AgentsClient
-from agent_framework.azure import AzureAIAgentClient
-from agent_framework import ChatAgent
+from app.agents.agent_factory import AgentFactory
+from app.models import AgentState
 
 # 1. SETUP
 load_dotenv()
 
 # --- 2. STRUCTURED OUTPUT SCHEMA ---
-class AgentState(BaseModel):
-    thought: str
-    action: Optional[str] = None
-    action_input: Optional[str] = None
-    next_action: Literal["continue", "await_user_approval", "handoff_to_solution_agent"]
-    root_cause: Optional[str] = None
+# Using AgentState from app.models to align with backend agents
 
 # --- 3. TOOLS ---
 def get_pod_details(pod_name: str) -> str:
@@ -76,44 +71,17 @@ async def main():
             # Extract connection info from project_client
             agents_client = AgentsClient(endpoint=endpoint, credential=credential)
             try:
-                diag_chat_client = AzureAIAgentClient(project_client=project_client, credential=credential, model_deployment_name="gpt-4.1-mini")
-                sol_chat_client = AzureAIAgentClient(project_client=project_client, credential=credential, model_deployment_name="gpt-4.1-mini")
-
-                try:
-                    diag_agent_id = (await agents_client.get_agent("asst_lMlS3XIxtrbImS0HEsMmiliY")).id
-                except:
-                    diag_agent_id = None
-
-                # Initialize Agents
-                diag_agent = ChatAgent(
-                    chat_client=diag_chat_client,
-                    id=diag_agent_id,
-                    name="Diagnostic Agent",
+                # Initialize agents via AgentFactory (uses same deployment/config as backend)
+                factory = AgentFactory(
+                    project_client=project_client,
+                    agents_client=agents_client,
+                    credential=credential,
                     tools=[get_pod_details],
-                    response_format=AgentState,
-                    instructions=(
-                        "You are an SRE Diagnostic Agent. Find the root cause of failures.\n"
-                        "For every step, follow this ReAct loop:\n"
-                        "1. THOUGHT: Reason about what the data means and what to check next.\n"
-                        "2. ACTION: Call a tool (get_pod_details).\n"
-                        "3. OBSERVATION: Analyze the output.\n\n"
-                        "Output json as format:"
-                        "{'thought': str, 'action': Optional[str], 'action_input': Optional[str], "
-                        "'next_action': 'continue' | 'await_user_approval' | 'handoff_to_solution_agent', "
-                        "'root_cause': Optional[str]}"
-                    ),
-                    temperature=0.0
+                    model_deployment_name="gpt-4.1-mini",
                 )
 
-                sol_agent_id = (await agents_client.get_agent("asst_4S7r6vAvX3nBQRGsj8C1RQk2")).id or None
-
-                sol_agent = ChatAgent(
-                    chat_client=sol_chat_client,
-                    id=sol_agent_id,
-                    name="Solution Agent",
-                    instructions="Provide a kubectl fix based on the root cause.",
-                    temperature=0.2
-                )
+                diag_agent = await factory.create_diagnostic_agent()
+                sol_agent = await factory.create_solution_agent()
 
                 # State Variables
                 current_input = "Investigate why pod 'auth-service-v2' is crashing."
@@ -192,10 +160,17 @@ async def main():
                         print(json.dumps(full_report, indent=2))
                         # In production, save 'full_report' to your database/file here.
             finally:
-                # 2. THE FIX: Explicitly close the internal chat clients
-                # This shuts down the aiohttp connectors
-                await diag_chat_client.close()
-                await sol_chat_client.close()
+                # 2. Cleanup: Explicitly close internal chat clients and agents client
+                try:
+                    if 'diag_agent' in locals() and getattr(diag_agent, 'chat_client', None):
+                        await diag_agent.chat_client.close()
+                except Exception:
+                    pass
+                try:
+                    if 'sol_agent' in locals() and getattr(sol_agent, 'chat_client', None):
+                        await sol_agent.chat_client.close()
+                except Exception:
+                    pass
                 await agents_client.close()
                 # Note: project_client is closed automatically by the 'async with' block
     finally:

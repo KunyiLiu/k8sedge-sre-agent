@@ -1,17 +1,33 @@
 import os
 import asyncio
 import logging
+import json
 from typing import Optional, Literal, List, Dict
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, Body, Query, WebSocket, WebSocketDisconnect
 from app.models import HealthIssue, HumanIntervention, MessageItem, WorkflowResponse, AgentState
+from skills.k8s_diag import (
+    get_pod_diagnostics,
+    get_pod_events,
+    get_image_pull_events,
+    get_service_account_details,
+    get_secret_exists,
+    get_workload_yaml,
+    get_pod_top_metrics,
+    get_pod_scheduling_events,
+    get_nodes_overview,
+    get_pvc_details,
+    get_namespace_resource_quota,
+    get_namespace_limit_ranges,
+)
 
 from azure.identity.aio import DefaultAzureCredential
 from azure.ai.projects.aio import AIProjectClient
 from azure.ai.agents.aio import AgentsClient
 from agent_framework.azure import AzureAIAgentClient
 from agent_framework import ChatAgent
+from app.agents.agent_factory import AgentFactory
 
 load_dotenv()
 
@@ -56,6 +72,47 @@ router = APIRouter()
 def get_pod_details(pod_name: str) -> str:
     return "LOGS: 'java.lang.OutOfMemoryError'. Events: 'Back-off restarting failed container'."
 
+# Tool registry for executing actions requested by the diagnostic agent
+TOOL_MAP = {
+    "get_pod_details": get_pod_details,
+    "get_pod_diagnostics": get_pod_diagnostics,
+    "get_pod_events": get_pod_events,
+    "get_image_pull_events": get_image_pull_events,
+    "get_service_account_details": get_service_account_details,
+    "get_secret_exists": get_secret_exists,
+    "get_workload_yaml": get_workload_yaml,
+    "get_pod_top_metrics": get_pod_top_metrics,
+    "get_pod_scheduling_events": get_pod_scheduling_events,
+    "get_nodes_overview": get_nodes_overview,
+    "get_pvc_details": get_pvc_details,
+    "get_namespace_resource_quota": get_namespace_resource_quota,
+    "get_namespace_limit_ranges": get_namespace_limit_ranges,
+}
+
+def _execute_tool(action: Optional[str], action_input: Optional[str]) -> Optional[str]:
+    if not action:
+        return None
+    fn = TOOL_MAP.get(action)
+    if not fn:
+        return None
+    # Expect JSON input with kwargs like {"name": "pod", "namespace": "ns"}
+    kwargs = {}
+    if action_input:
+        try:
+            data = json.loads(action_input)
+            if isinstance(data, dict):
+                kwargs = data
+            elif isinstance(data, list):
+                # Unpack ordered args if a list is provided
+                return fn(*data)  # type: ignore[misc]
+            else:
+                # Single positional string
+                return fn(action_input)  # type: ignore[misc]
+        except Exception:
+            # Not JSON; pass as single positional arg
+            return fn(action_input)  # type: ignore[misc]
+    return fn(**kwargs)  # type: ignore[misc]
+
 async def get_clean_history(agents_client: AgentsClient, thread_id: str) -> List[MessageItem]:
     history: List[MessageItem] = []
     try:
@@ -79,47 +136,22 @@ def issue_key(issue: HealthIssue) -> str:
     container = issue.container or ""
     return f"{ns}:{issue.resourceType}:{issue.resourceName}:{container}"
 
-async def create_diag_agent(project_client: AIProjectClient, agents_client: AgentsClient, credential: DefaultAzureCredential) -> ChatAgent:
-    chat_client = AzureAIAgentClient(project_client=project_client, credential=credential, model_deployment_name="gpt-4.1-mini")
-    try:
-        diag_agent_id = (await agents_client.get_agent("asst_lMlS3XIxtrbImS0HEsMmiliY")).id
-    except:
-        diag_agent_id = None
-    
-    return ChatAgent(
-        chat_client=chat_client,
-        id=diag_agent_id,
-        name="Diagnostic Agent",
-        tools=[get_pod_details],
-        response_format=AgentState,
-        instructions=(
-            "You are an SRE Diagnostic Agent. Find the root cause of failures.\n"
-            "For every step, follow this ReAct loop:\n"
-            "1. THOUGHT: Reason about what the data means and what to check next.\n"
-            "2. ACTION: Call a tool (get_pod_details).\n"
-            "3. OBSERVATION: Analyze the output.\n\n"
-            "Output json as format:"
-            "{'thought': str, 'action': Optional[str], 'action_input': Optional[str], "
-            "'next_action': 'continue' | 'await_user_approval' | 'handoff_to_solution_agent', "
-            "'root_cause': Optional[str]}"
-        ),
-        temperature=0.0,
-    )
-
-async def create_sol_agent(project_client: AIProjectClient, agents_client: AgentsClient, credential: DefaultAzureCredential) -> ChatAgent:
-    chat_client = AzureAIAgentClient(project_client=project_client, credential=credential, model_deployment_name="gpt-4.1-mini")
-    try:
-        sol_agent_id = (await agents_client.get_agent("asst_4S7r6vAvX3nBQRGsj8C1RQk2")).id
-    except:
-        sol_agent_id = None
-
-    return ChatAgent(
-        chat_client=chat_client,
-        id=sol_agent_id,
-        name="Solution Agent",
-        instructions="Provide a kubectl fix based on the root cause.",
-        temperature=0.2,
-    )
+def _get_tools_list():
+    return [
+        get_pod_details,
+        get_pod_diagnostics,
+        get_pod_events,
+        get_image_pull_events,
+        get_service_account_details,
+        get_secret_exists,
+        get_workload_yaml,
+        get_pod_top_metrics,
+        get_pod_scheduling_events,
+        get_nodes_overview,
+        get_pvc_details,
+        get_namespace_resource_quota,
+        get_namespace_limit_ranges,
+    ]
 
 async def run_diag_until_wait_or_handoff(diag_agent: ChatAgent, agents_client: AgentsClient, start_input: str, max_steps: int = 4):
     diag_thread = diag_agent.get_new_thread()
@@ -139,9 +171,12 @@ async def run_diag_until_wait_or_handoff(diag_agent: ChatAgent, agents_client: A
             continue
         if final_state.next_action in ("await_user_approval", "handoff_to_solution_agent"):
             break
-        if final_state.next_action == "continue" and final_state.action == "get_pod_details":
-            obs = get_pod_details(final_state.action_input or "")
-            current_input = f"Observation: {obs}"
+        if final_state.next_action == "continue" and final_state.action:
+            obs = _execute_tool(final_state.action, final_state.action_input)
+            if obs is None:
+                current_input = "Observation: (no-op)"
+            else:
+                current_input = f"Observation: {obs}"
     history = await get_clean_history(agents_client, diag_thread.service_thread_id)
     return {
         "diag_thread_id": diag_thread.service_thread_id,
@@ -172,7 +207,8 @@ async def workflow_ws(ws: WebSocket):
         assert _endpoint and _credential
         agents_client = AgentsClient(endpoint=_endpoint, credential=_credential)
 
-        diag_agent = await create_diag_agent(project_client, agents_client, _credential)
+        factory = AgentFactory(project_client=project_client, agents_client=agents_client, credential=_credential, tools=_get_tools_list())
+        diag_agent = await factory.create_diagnostic_agent()
         start_input = f"Investigate why {issue.resourceType} '{issue.resourceName}' is unhealthy: {issue.issueType}."
         diag_thread = diag_agent.get_new_thread()
         WORKFLOW_STORE[key] = {"diag_thread_id": diag_thread.service_thread_id, "sol_thread_id": None}
@@ -219,7 +255,7 @@ async def workflow_ws(ws: WebSocket):
                     break
 
             elif state and state.next_action == "handoff_to_solution_agent":
-                sol_agent = await create_sol_agent(project_client, agents_client, _credential)
+                sol_agent = await factory.create_solution_agent()
                 sol_thread = sol_agent.get_new_thread()
                 root_cause = state.root_cause or ""
                 await sol_agent.run(f"Fix this: {root_cause}", thread=sol_thread)
@@ -232,9 +268,12 @@ async def workflow_ws(ws: WebSocket):
 
             else:
                 # continue loop; optionally call tools
-                if state and state.next_action == "continue" and state.action == "get_pod_details":
-                    obs = get_pod_details(state.action_input or "")
-                    current_input = f"Observation: {obs}"
+                if state and state.next_action == "continue" and state.action:
+                    obs = _execute_tool(state.action, state.action_input)
+                    if obs is None:
+                        current_input = "Observation: (no-op)"
+                    else:
+                        current_input = f"Observation: {obs}"
                 else:
                     current_input = "Continue."
 
@@ -273,7 +312,8 @@ async def start_workflow(issue: HealthIssue = Body(...)):
         assert _endpoint and _credential
         agents_client = AgentsClient(endpoint=_endpoint, credential=_credential)
         try:
-            diag_agent = await create_diag_agent(project_client, agents_client, _credential)
+            factory = AgentFactory(project_client=project_client, agents_client=agents_client, credential=_credential, tools=_get_tools_list())
+            diag_agent = await factory.create_diagnostic_agent()
             start_input = f"Investigate why {issue.resourceType} '{issue.resourceName}' is unhealthy: {issue.issueType}."
             result = await run_diag_until_wait_or_handoff(diag_agent, agents_client, start_input)
             key = issue_key(issue)
@@ -294,7 +334,7 @@ async def start_workflow(issue: HealthIssue = Body(...)):
                 history=result["history"],
             )
             if payload.status == "handoff" and result["state"] and result["state"].root_cause:
-                sol_agent = await create_sol_agent(project_client, agents_client, _credential)
+                sol_agent = await factory.create_solution_agent()
                 sol_thread = sol_agent.get_new_thread()
                 await sol_agent.run(f"Fix this: {result['state'].root_cause}", thread=sol_thread)
                 payload.sol_thread_id = sol_thread.service_thread_id
@@ -312,7 +352,8 @@ async def human_intervene(data: HumanIntervention):
         assert _endpoint and _credential
         agents_client = AgentsClient(endpoint=_endpoint, credential=_credential)
         try:
-            diag_agent = await create_diag_agent(project_client, agents_client, _credential)
+            factory = AgentFactory(project_client=project_client, agents_client=agents_client, credential=_credential, tools=_get_tools_list())
+            diag_agent = await factory.create_diagnostic_agent()
             diag_thread = diag_agent.get_new_thread(service_thread_id=data.diag_thread_id)
 
             if data.decision == "approve":
@@ -331,7 +372,8 @@ async def human_intervene(data: HumanIntervention):
                 state = None
             sol_thread_id: Optional[str] = None
             if data.decision == "handoff" or (state and state.next_action == "handoff_to_solution_agent"):
-                sol_agent = await create_sol_agent(project_client, agents_client, _credential)
+                factory = AgentFactory(project_client=project_client, agents_client=agents_client, credential=_credential, tools=_get_tools_list())
+                sol_agent = await factory.create_solution_agent()
                 sol_thread = sol_agent.get_new_thread()
                 root_cause = (state.root_cause if state else "")
                 await sol_agent.run(f"Fix this: {root_cause}", thread=sol_thread)
