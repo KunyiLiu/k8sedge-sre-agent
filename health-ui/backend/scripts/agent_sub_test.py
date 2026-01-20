@@ -1,73 +1,119 @@
 import os
 import asyncio
+import sys
+from pathlib import Path
 from dotenv import load_dotenv
 from azure.identity.aio import DefaultAzureCredential
 from azure.ai.projects.aio import AIProjectClient
 from azure.ai.agents.aio import AgentsClient
 
-# 1. SETUP
+# Ensure backend directory is on sys.path so 'app' and 'skills' packages can be imported when running this script directly.
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from app.agents.agent_factory import AgentFactory
+from app.models import HealthIssue, ResourceType, AgentState
+from skills.mock_k8s_diag import create_mock_tools
+
+
+# Setup
 load_dotenv()
+
+
+def format_duration(seconds: int) -> str:
+    """Simple duration formatter: returns "HHh MMm" for a given seconds value."""
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    return f"{hours:02d}h {minutes:02d}m"
+
 
 async def get_clean_history(agents_client: AgentsClient, thread_id: str):
     """Fetches final messages from Azure for auditing."""
     history = []
     try:
-        # Use AgentsClient.messages.list() to get messages
         async for message in agents_client.messages.list(thread_id=thread_id):
             text = ""
-            if getattr(message, 'text_messages', None):
-                texts = [tm.text.value for tm in message.text_messages if hasattr(tm, 'text')]
-                text = texts[-1] if texts else ''
+            if getattr(message, "text_messages", None):
+                texts = [tm.text.value for tm in message.text_messages if hasattr(tm, "text")]
+                text = texts[-1] if texts else ""
             else:
-                text = getattr(message, 'text', '') or ''
-            
+                text = getattr(message, "text", "") or ""
+
             history.append({"role": message.role, "text": text})
-        
-        # Reverse to get chronological order
         history.reverse()
     except Exception as e:
         print(f"Error fetching history: {e}")
-    
     return history
 
-def get_pod_details(pod_name: str) -> str:
-    """Simulated SRE Tool."""
-    print(f"--- [Skill] Fetching data for {pod_name} ---")
-    return "LOGS: 'java.lang.OutOfMemoryError'. Events: 'Back-off restarting failed container'."
 
 async def main():
+    # Environment
     endpoint = os.getenv("AZURE_AI_PROJECT_ENDPOINT")
     if not endpoint:
         raise ValueError("AZURE_AI_PROJECT_ENDPOINT not set in environment variables.")
 
     credential = DefaultAzureCredential()
 
-    async with AIProjectClient(endpoint=endpoint, credential=credential) as project_client:
-        
-        # Create AgentsClient for message operations
-        # Extract connection info from project_client
+    try:
+        async with AIProjectClient(endpoint=endpoint, credential=credential) as project_client:
+            agents_client = AgentsClient(endpoint=endpoint, credential=credential)
 
-        agents_client = AgentsClient(
-            endpoint=endpoint,
-            credential=credential,
-            project_id="proj-SRE-K8s-AI")
+            # Mock tools profile to simulate CrashLoopBackOff
+            tools = create_mock_tools(profile="crashloop")
 
-        # 1. Get messages to the thread
-        history = await get_clean_history(agents_client, "thread_384EVI8bMid0xtUSpcjQA83U")
-        print(f"Thread History: {history}")
+            # Build factory and agents
+            factory = AgentFactory(
+                project_client=project_client,
+                agents_client=agents_client,
+                credential=credential,
+                tools=tools,
+            )
+            diag_agent = await factory.create_diagnostic_agent()
 
-        # # 2. Create a thread
+            # Prepare HealthIssue input
+            issue = HealthIssue(
+                issueType="CrashLoopBackOff",
+                severity="High",
+                resourceType=ResourceType.Pod,
+                namespace="default",
+                resourceName="web-0",
+                container="web",
+                unhealthySince=format_duration(3600),
+                unhealthyTimespan=3600,
+                message="Container is in CrashLoopBackOff state."
+            )
+            start_input = (
+                f"Investigate the issue {issue.issueType} for {issue.resourceType} [resourceName={issue.resourceName}, container={issue.container}, namespace={issue.namespace}]."
+            )
 
-        thread = await agents_client.threads.create()
-        await agents_client.messages.create(
-            thread_id=thread.id,
-            role="user",
-            content="Investigate why pod 'nginx-pod-1234' is crashing."
-        )
-        print(f"Created Thread ID: {thread.id}")
+            # Run diagnostic agent
+            diag_thread = diag_agent.get_new_thread()
+            result = await diag_agent.run(start_input, thread=diag_thread)
+            msgs = getattr(result, "messages", [])
+            last_text = msgs[-1].text if msgs else ""
+            print("\nLast diagnostic response:\n", last_text)
 
-        run = await agents_client.runs.create_and_process(thread_id=thread.id, agent_id="asst_u5aZbA4S1bCzDf7Kac4Unb1a")
+            # Try to parse as AgentState JSON (if agent followed schema)
+            state = None
+            try:
+                state = AgentState.model_validate_json(last_text)
+                print("\nParsed state:", state.model_dump())
+            except Exception:
+                print("\nNo structured AgentState JSON found in last message.")
 
-        print(f"Created Run Thread ID: {run.thread_id}")
+            # Fetch and print history
+            if diag_thread.service_thread_id:
+                history = await get_clean_history(agents_client, diag_thread.service_thread_id)
+                print("\nThread History:")
+                for h in history:
+                    print(f"[{h['role']}] {h['text']}")
+            else:
+                print("\nNo service-managed thread ID available yet; skipping history fetch.")
+    finally:
+        await agents_client.close()
+        await credential.close()
 
-asyncio.run(main())
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -593,9 +593,11 @@ source = { virtual = "." }
 dependencies = [
     { name = "agent-framework" },
     { name = "agent-framework-azure-ai" },
+    { name = "agent-framework-azure-ai-search" },
     { name = "aiohttp" },
     { name = "azure-ai-projects" },
     { name = "azure-identity" },
+    { name = "azure-search-documents" },
     { name = "azure-storage-blob" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -610,9 +612,11 @@ dependencies = [
 requires-dist = [
     { name = "agent-framework", specifier = "==1.0.0b260107" },
     { name = "agent-framework-azure-ai", specifier = "==1.0.0b260107" },
+    { name = "agent-framework-azure-ai-search", specifier = ">=1.0.0b260107" },
     { name = "aiohttp", specifier = ">=3.13.3" },
     { name = "azure-ai-projects", specifier = ">=2.0.0b2" },
     { name = "azure-identity", specifier = ">=1.25.1" },
+    { name = "azure-search-documents", specifier = ">=11.7.0b2" },
     { name = "azure-storage-blob", specifier = ">=12.28.0" },
     { name = "fastapi", specifier = ">=0.128.0" },
     { name = "httpx", specifier = ">=0.28.1" },
