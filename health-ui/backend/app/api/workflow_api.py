@@ -8,6 +8,7 @@ from app.models import HealthIssue, AgentState
 from azure.identity.aio import DefaultAzureCredential
 from azure.ai.projects.aio import AIProjectClient
 from azure.ai.agents.aio import AgentsClient
+from azure.ai.agents.models import ListSortOrder
 from app.agents.agent_factory import AgentFactory
 from skills.mock_k8s_diag import create_mock_tools
 
@@ -85,6 +86,16 @@ async def _get_clean_history(agents_client: AgentsClient, thread_id: str) -> lis
     history.reverse()
     return history
 
+async def _get_last_message_text(agents_client: AgentsClient, thread_id: str) -> str:
+    last_text = ""
+    async for message in agents_client.messages.list(thread_id=thread_id, order=ListSortOrder.DESCENDING, limit=1):
+        text = getattr(message, "text", "") or ""
+        if getattr(message, "text_messages", None):
+            texts = [tm.text.value for tm in message.text_messages if hasattr(tm, "text")]
+            text = texts[-1] if texts else text
+        last_text = text
+    return last_text
+
 async def _flush_diag_stream(
     ws: WebSocket,
     diag_agent,
@@ -109,12 +120,12 @@ async def _flush_diag_stream(
                 logger.debug(f"Parsed diagnostic object: {obj}")
                 state_flush = AgentState.model_validate(obj)
                 await ws.send_json({
-                    "event": "diagnostic_partial",
+                    "event": "diagnostic",
                     "issueId": issue_id,
                     "diag_thread_id": getattr(diag_thread, "service_thread_id", None),
                     "state": state_flush.model_dump(),
                 })
-                logger.debug(f"Sent diagnostic_partial; thought preview: {state_flush.thought[:50]}...")
+                logger.debug(f"Sent diagnostic; thought preview: {state_flush.thought[:50]}...")
                 buffer = buffer[start + end:]
             except json.JSONDecodeError:
                 logger.debug("Incomplete JSON fragment; waiting for more chunks")
@@ -122,20 +133,6 @@ async def _flush_diag_stream(
             except Exception as e:
                 logger.warning(f"Validation error while parsing stream: {e}")
                 buffer = buffer[start + 1:]
-
-async def _emit_diagnostic_state(
-    ws: WebSocket,
-    *,
-    issue_id: str,
-    diag_thread,
-    state: Optional[AgentState],
-):
-    await ws.send_json({
-        "event": "diagnostic",
-        "issueId": issue_id,
-        "diag_thread_id": getattr(diag_thread, "service_thread_id", None),
-        "state": (state.model_dump() if state else None)
-    })
 
 async def _ask_intervention(
     ws: WebSocket,
@@ -202,14 +199,7 @@ async def _run_solution_and_emit(
         "sol_thread_id": sol_thread_id,
         "state": result.text,
     })
-    # Show updated histories including the solution thread
-    await _send_thread_histories(
-        ws,
-        agents_client,
-        issue_id=issue_id,
-        diag_thread_id=getattr(diag_thread, "service_thread_id", None),
-        sol_thread_id=sol_thread_id,
-    )
+
     await ws.send_json({
         "event": "complete",
         "status": "handoff",
@@ -273,7 +263,6 @@ async def workflow_ws(ws: WebSocket):
             should_resume = await _ask_resume(ws, issue_id=issue_id, diag_thread_id=existing_diag_id)
             if should_resume:
                 diag_thread = diag_agent.get_new_thread(service_thread_id=existing_diag_id)
-                get_thread = getattr(diag_agent, "get_thread", None)
                 if diag_thread is None:
                     diag_thread = diag_agent.get_new_thread()
                     logger.info("Started new diagnostic thread because resume was unavailable")
@@ -318,12 +307,6 @@ async def workflow_ws(ws: WebSocket):
                 state = AgentState.model_validate_json(last_text)
             except Exception:
                 state = None
-            await _emit_diagnostic_state(
-                ws,
-                issue_id=issue_id,
-                diag_thread=diag_thread,
-                state=state,
-            )
 
             if len(history) >= 50:
                 await ws.send_json({
