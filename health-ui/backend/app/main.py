@@ -1,12 +1,12 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from app.api.metrics import router as metrics_router
-from app.api.workflow_api import router as workflow_router, close_project_client
+from app.api.workflow_api import router as workflow_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
-    await close_project_client()
+    # await close_project_client()
 
 app = FastAPI(title="Health Aggregator API", lifespan=lifespan)
 

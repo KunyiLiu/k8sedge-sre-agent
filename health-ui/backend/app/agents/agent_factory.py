@@ -212,7 +212,7 @@ class AgentFactory:
 
     async def create_diagnostic_agent(self) -> ChatAgent:
         # Get or create the service-managed Diagnostic agent
-        diag_agent_id = await self.get_agent_id("diagnostic", "asst_LIVZNFzYyJdwv6NlkbH5KIpb")
+        diag_agent_id = await self.get_agent_id("diagnostic", "asst_a0u0StvtTgiJdavwhXhiPe7a")
 
         chat_client = AzureAIAgentClient(
             project_client=self._project_client,
@@ -232,7 +232,7 @@ class AgentFactory:
 
     async def create_solution_agent(self) -> ChatAgent:
         # Get or create the service-managed Solution agent
-        sol_agent_id = await self.get_agent_id("solution")
+        sol_agent_id = await self.get_agent_id("solution", "asst_eZFYewQs8IRfZyinuuLnRIhk")
 
         chat_client = AzureAIAgentClient(
             project_client=self._project_client,
