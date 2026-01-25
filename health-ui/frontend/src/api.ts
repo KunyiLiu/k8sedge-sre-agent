@@ -16,6 +16,7 @@ export interface HealthIssue {
   unhealthySince: string;
   unhealthyTimespan: number;
   message: string;
+  issueId: string;
 }
 
 // Helper to fetch health issues

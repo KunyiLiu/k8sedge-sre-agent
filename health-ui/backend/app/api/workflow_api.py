@@ -236,16 +236,7 @@ async def _run_solution_and_emit(
         state=solution_state,
     )
     await ws.send_json(handoff_payload.model_dump())
-
-    # Show updated histories including the solution thread
-    # await _send_thread_histories(
-    #     ws,
-    #     agents_client,
-    #     issue_id=issue_id,
-    #     diag_thread_id=getattr(diag_thread, "service_thread_id", None),
-    #     sol_thread_id=sol_thread_id,
-    # )
-
+    
     complete_payload = WebSocketPayload(
         event="complete",
         status="handoff",
