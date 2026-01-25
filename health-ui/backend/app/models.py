@@ -1,6 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel, model_validator
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal, Union
 import hashlib
 
 class ResourceType(str, Enum):
@@ -40,11 +40,6 @@ class HealthIssue(BaseModel):
             self.issueId = self.compute_issue_id()
         return self
 
-class HumanIntervention(BaseModel):
-    diag_thread_id: str
-    decision: Literal["approve", "deny", "handoff"]
-    hint: Optional[str] = None
-
 class AgentState(BaseModel):
     thought: str
     action: Optional[str] = None
@@ -56,9 +51,41 @@ class MessageItem(BaseModel):
     role: str
     text: str
 
-class WorkflowResponse(BaseModel):
-    status: Optional[Literal["in_progress", "awaiting_approval", "handoff"]] = None
-    diag_thread_id: str
+# Solution response schema for handoff
+class Escalation(BaseModel):
+    recommended: bool
+    reason: Optional[str] = None
+    target_team: Optional[str] = None
+    severity: Optional[Literal["low", "medium", "high", "critical"]] = None
+    email_draft: Optional[str] = None
+
+class SolutionResponse(BaseModel):
+    thought: str
+    recommended_fix: Optional[Dict[str, Any]] = None
+    escalation: Escalation
+    risk_level: Literal["low", "medium", "high"]
+    assumptions: List[str] = []
+    references: List[str] = []
+
+# Generic WebSocket payload used by /workflow/ws
+class WebSocketPayload(BaseModel):
+    event: Literal[
+        "history",
+        "diagnostic",
+        "awaiting_approval",
+        "handoff_approval",
+        "resume_available",
+        "handoff",
+        "complete",
+        "error",
+    ]
+    issueId: Optional[str] = None
+    diag_thread_id: Optional[str] = None
     sol_thread_id: Optional[str] = None
-    state: Optional[AgentState] = None
-    history: List[MessageItem]
+
+    # Content for specific events
+    state: Optional[Union[AgentState, SolutionResponse]] = None
+    status: Optional[Literal["in_progress", "handoff"]] = None
+    diag_history: Optional[List[MessageItem]] = None
+    sol_history: Optional[List[MessageItem]] = None
+    question: Optional[str] = None
