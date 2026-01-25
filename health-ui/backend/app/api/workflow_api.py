@@ -1,20 +1,27 @@
 import os
 import json
 import logging
-from typing import Optional
+from typing import Optional, Literal, Any
 from dotenv import load_dotenv
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from app.models import HealthIssue, AgentState
+from app.models import HealthIssue, AgentState, WebSocketPayload, SolutionResponse, MessageItem
 from azure.identity.aio import DefaultAzureCredential
 from azure.ai.projects.aio import AIProjectClient
 from azure.ai.agents.aio import AgentsClient
 from azure.ai.agents.models import ListSortOrder
 from app.agents.agent_factory import AgentFactory
+from agent_framework import ChatAgent
 from skills.mock_k8s_diag import create_mock_tools
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+if not logger.handlers:  # avoid dupes on reload
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logger.addHandler(_h)
+logger.setLevel(logging.DEBUG)     # or INFO
+logger.propagate = False           # prevent double logging via root
 
 router = APIRouter()
  
@@ -42,25 +49,30 @@ async def _send_thread_histories(
             sol_history = await _get_clean_history(agents_client, sol_thread_id)
         except Exception as e:
             logger.warning(f"Failed to load solution history for {sol_thread_id}: {e}")
-    await ws.send_json({
-        "event": "history",
-        "issueId": issue_id,
-        "diag_thread_id": diag_thread_id,
-        "sol_thread_id": sol_thread_id,
-        "diag_history": diag_history,
-        "sol_history": sol_history,
-    })
+    payload = WebSocketPayload(
+        event="history",
+        issueId=issue_id,
+        diag_thread_id=diag_thread_id,
+        sol_thread_id=sol_thread_id,
+        diag_history=[MessageItem(**h) for h in diag_history],
+        sol_history=[MessageItem(**h) for h in sol_history],
+    )
+    await ws.send_json(payload.model_dump())
 
 async def _ask_resume(ws: WebSocket, *, issue_id: str, diag_thread_id: str) -> bool:
-    await ws.send_json({
-        "event": "resume_available",
-        "issueId": issue_id,
-        "diag_thread_id": diag_thread_id,
-        "question": "Resume previous diagnostic?",
-    })
+    payload = WebSocketPayload(
+        event="resume_available",
+        issueId=issue_id,
+        diag_thread_id=diag_thread_id,
+        question="Resume previous diagnostic?",
+    )
+    await ws.send_json(payload.model_dump())
     try:
         msg = await ws.receive_json()
     except WebSocketDisconnect:
+        return False
+    except (ValueError, json.JSONDecodeError) as e:
+        logger.warning(f"Invalid resume message: {e}")
         return False
     if msg.get("type") == "resume" and str(msg.get("decision", "")).lower() in ("yes", "true", "y"):
         return True
@@ -75,9 +87,11 @@ async def _get_clients() -> tuple[AIProjectClient, AgentsClient, DefaultAzureCre
     agents_client = AgentsClient(endpoint=endpoint, credential=credential)
     return project_client, agents_client, credential
 
-async def _get_clean_history(agents_client: AgentsClient, thread_id: str) -> list[dict]:
+async def _get_clean_history(agents_client: AgentsClient, thread_id: str, user_message_included: bool = False) -> list[dict]:
     history: list[dict] = []
     async for message in agents_client.messages.list(thread_id=thread_id):
+        if user_message_included is False and message.role == "user":
+            continue
         text = getattr(message, "text", "") or ""
         if getattr(message, "text_messages", None):
             texts = [tm.text.value for tm in message.text_messages if hasattr(tm, "text")]
@@ -105,55 +119,69 @@ async def _flush_diag_stream(
     issue_id: str,
 ):
     buffer = ""
-    async for update in diag_agent.run_stream(current_input, thread=diag_thread):
-        if update.text is None:
-            continue
-        
-        buffer += update.text
-        decoder = json.JSONDecoder()
-        while True:
-            start = buffer.find("{")
-            if start == -1:
-                break
-            try:
-                obj, end = decoder.raw_decode(buffer[start:])
-                logger.debug(f"Parsed diagnostic object: {obj}")
-                state_flush = AgentState.model_validate(obj)
-                await ws.send_json({
-                    "event": "diagnostic",
-                    "issueId": issue_id,
-                    "diag_thread_id": getattr(diag_thread, "service_thread_id", None),
-                    "state": state_flush.model_dump(),
-                })
-                logger.debug(f"Sent diagnostic; thought preview: {state_flush.thought[:50]}...")
-                buffer = buffer[start + end:]
-            except json.JSONDecodeError:
-                logger.debug("Incomplete JSON fragment; waiting for more chunks")
-                break
-            except Exception as e:
-                logger.warning(f"Validation error while parsing stream: {e}")
-                buffer = buffer[start + 1:]
+    try:
+        async for update in diag_agent.run_stream(current_input, thread=diag_thread):
+            if update.text is None:
+                continue
+            
+            buffer += update.text
+            decoder = json.JSONDecoder()
+            while True:
+                start = buffer.find("{")
+                if start == -1:
+                    break
+                try:
+                    obj, end = decoder.raw_decode(buffer[start:])
+                    logger.debug(f"Parsed diagnostic object: {obj}")
+                    state_flush = AgentState.model_validate(obj)
+                    payload = WebSocketPayload(
+                        event="diagnostic",
+                        issueId=issue_id,
+                        diag_thread_id=getattr(diag_thread, "service_thread_id", None),
+                        state=state_flush,
+                    )
+                    await ws.send_json(payload.model_dump())
+                    logger.debug(f"Sent diagnostic; thought preview: {state_flush.thought[:50]}...")
+                    buffer = buffer[start + end:]
+                except json.JSONDecodeError:
+                    break
+                except Exception as e:
+                    logger.warning(f"Validation error while parsing stream: {e}")
+                    buffer = buffer[start + 1:]
+    finally:
+        # Preserve any existing solution thread id for this issue, if present
+        if diag_thread:
+            # Update only the diag_thread_id key to avoid overwriting other stored keys
+            if issue_id not in ISSUE_THREAD_MAP:
+                ISSUE_THREAD_MAP[issue_id] = {}
+            ISSUE_THREAD_MAP[issue_id]["diag_thread_id"] = diag_thread.service_thread_id
+
+            logger.info(f"---UPDATED ISSUE_THREAD_MAP: {ISSUE_THREAD_MAP} for issueId={issue_id} and diag_thread_id={diag_thread.service_thread_id}---")
+
 
 async def _ask_intervention(
     ws: WebSocket,
     *,
     issue_id: str,
     diag_thread_id: str,
-    thought: Optional[str] = None,
-    event_name: str = "awaiting_approval",
+    question: Optional[str] = None,
+    event_name: Literal["awaiting_approval", "handoff_approval"] = "awaiting_approval",
 ) -> Optional[str]:
-    payload = {
-        "event": event_name,
-        "issueId": issue_id,
-        "diag_thread_id": diag_thread_id,
-    }
-    if thought:
-        payload["thought"] = thought
-    await ws.send_json(payload)
+    payload = WebSocketPayload(
+        event=event_name,
+        issueId=issue_id,
+        diag_thread_id=diag_thread_id,
+        question=question,
+    )
+    await ws.send_json(payload.model_dump())
     try:
         decision_msg = await ws.receive_json()
     except WebSocketDisconnect:
         return None
+    except (ValueError, json.JSONDecodeError) as e:
+        logger.warning(f"Invalid intervention message: {e}")
+        return None
+
     if decision_msg.get("type") != "intervene":
         await ws.send_json({
             "event": "error",
@@ -192,21 +220,31 @@ async def _run_solution_and_emit(
     except Exception:
         pass
 
-    await ws.send_json({
-        "event": "handoff",
-        "issueId": issue_id,
-        "diag_thread_id": getattr(diag_thread, "service_thread_id", None),
-        "sol_thread_id": sol_thread_id,
-        "state": result.text,
-    })
+    # Attempt to parse solution result into SolutionResponse; fallback to detail
+    solution_state = None
+    try:
+        data = json.loads(getattr(result, "text", ""))
+        solution_state = SolutionResponse.model_validate(data)
+    except Exception as e:
+        logger.warning(f"Failed to parse solution response into structured JSON: {e}")
 
-    await ws.send_json({
-        "event": "complete",
-        "status": "handoff",
-        "issueId": issue_id,
-        "diag_thread_id": getattr(diag_thread, "service_thread_id", None),
-        "sol_thread_id": sol_thread_id,
-    })
+    handoff_payload = WebSocketPayload(
+        event="handoff",
+        issueId=issue_id,
+        diag_thread_id=getattr(diag_thread, "service_thread_id", None),
+        sol_thread_id=sol_thread_id,
+        state=solution_state,
+    )
+    await ws.send_json(handoff_payload.model_dump())
+    
+    complete_payload = WebSocketPayload(
+        event="complete",
+        status="handoff",
+        issueId=issue_id,
+        diag_thread_id=getattr(diag_thread, "service_thread_id", None),
+        sol_thread_id=sol_thread_id,
+    )
+    await ws.send_json(complete_payload.model_dump())
 
 @router.websocket("/workflow/ws")
 async def workflow_ws(ws: WebSocket):
@@ -214,6 +252,7 @@ async def workflow_ws(ws: WebSocket):
     project_client: Optional[AIProjectClient] = None
     agents_client: Optional[AgentsClient] = None
     credential: Optional[DefaultAzureCredential] = None
+    diag_agent: Optional[ChatAgent] = None
     
     try:
         init_msg = await ws.receive_json()
@@ -242,6 +281,8 @@ async def workflow_ws(ws: WebSocket):
         diag_thread = None
         current_input = start_input
 
+        logger.info(f"---ISSUE_THREAD_MAP: {ISSUE_THREAD_MAP} for issueId={issue_id}---")
+
         if existing_diag_id:
             await _send_thread_histories(
                 ws, agents_client,
@@ -251,13 +292,14 @@ async def workflow_ws(ws: WebSocket):
             )
             if existing_sol_id:
                 # If solution thread exists, just show histories and finish
-                await ws.send_json({
-                    "event": "complete",
-                    "status": "handoff",
-                    "issueId": issue_id,
-                    "diag_thread_id": existing_diag_id,
-                    "sol_thread_id": existing_sol_id,
-                })
+                payload = WebSocketPayload(
+                    event="complete",
+                    status="handoff",
+                    issueId=issue_id,
+                    diag_thread_id=existing_diag_id,
+                    sol_thread_id=existing_sol_id,
+                )
+                await ws.send_json(payload.model_dump())
                 return
             # Ask to resume diagnostic
             should_resume = await _ask_resume(ws, issue_id=issue_id, diag_thread_id=existing_diag_id)
@@ -270,23 +312,18 @@ async def workflow_ws(ws: WebSocket):
                     current_input = "Resume investigation based on the history above."
                     logger.info(f"Resuming diagnostic thread for issueId={issue_id} threadId={existing_diag_id}")
             else:
-                await ws.send_json({
-                    "event": "complete",
-                    "status": "in_progress",
-                    "issueId": issue_id,
-                    "diag_thread_id": existing_diag_id,
-                })
+                payload = WebSocketPayload(
+                    event="complete",
+                    status="in_progress",
+                    issueId=issue_id,
+                    diag_thread_id=existing_diag_id,
+                )
+                await ws.send_json(payload.model_dump())
                 return
         else:
             diag_thread = diag_agent.get_new_thread()
-            logger.info(f"Started new diagnostic thread for issueId={issue_id}")
+            logger.info(f"Started new diagnostic thread for issueId={issue_id}.")
 
-        # Record/update mapping with diagnostic thread
-        if diag_thread:
-            ISSUE_THREAD_MAP[issue_id] = {
-                "diag_thread_id": diag_thread.service_thread_id,
-                "sol_thread_id": existing_sol_id,
-            }
         step_count = 0
         max_steps = 12
         
@@ -309,12 +346,13 @@ async def workflow_ws(ws: WebSocket):
                 state = None
 
             if len(history) >= 50:
-                await ws.send_json({
-                    "event": "complete",
-                    "status": "in_progress",
-                    "issueId": issue_id,
-                    "diag_thread_id": getattr(diag_thread, "service_thread_id", None)
-                })
+                payload = WebSocketPayload(
+                    event="complete",
+                    status="in_progress",
+                    issueId=issue_id,
+                    diag_thread_id=getattr(diag_thread, "service_thread_id", None),
+                )
+                await ws.send_json(payload.model_dump())
                 break
 
             if not state:
@@ -326,7 +364,7 @@ async def workflow_ws(ws: WebSocket):
                     ws,
                     issue_id=issue_id,
                     diag_thread_id=getattr(diag_thread, "service_thread_id", None) or "",
-                    thought=state.thought,
+                    question=f"Root cause: {state.root_cause} Proceed to handoff to solution agent?",
                     event_name="handoff_approval",
                 )
                 if decision == "approve":
@@ -344,50 +382,40 @@ async def workflow_ws(ws: WebSocket):
                     current_input = "Handoff DENIED. Continue diagnosis."
                     continue
                 else:
-                    await ws.send_json({
-                        "event": "error",
-                        "detail": "Unknown decision or no approval",
-                        "issueId": issue_id,
-                        "diag_thread_id": getattr(diag_thread, "service_thread_id", None)
-                    })
+                    payload = WebSocketPayload(
+                        event="error",
+                        issueId=issue_id,
+                        diag_thread_id=getattr(diag_thread, "service_thread_id", None),
+                    )
+                    await ws.send_json(payload.model_dump())
                     break
 
             if state.next_action == "await_user_approval":
-                await ws.send_json({
-                    "event": "awaiting_approval",
-                    "issueId": issue_id,
-                    "diag_thread_id": getattr(diag_thread, "service_thread_id", None),
-                    "thought": state.thought
-                })
-                try:
-                    decision_msg = await ws.receive_json()
-                except WebSocketDisconnect:
-                    break
-                if decision_msg.get("type") != "intervene":
-                    await ws.send_json({
-                        "event": "error",
-                        "detail": "Expected intervene message",
-                        "issueId": issue_id,
-                        "diag_thread_id": getattr(diag_thread, "service_thread_id", None)
-                    })
-                    break
-                d = decision_msg.get("decision")
-                hint = decision_msg.get("hint") or ""
+                d = await _ask_intervention(
+                    ws,
+                    issue_id=issue_id,
+                    diag_thread_id=getattr(diag_thread, "service_thread_id", None) or "",
+                    question=f"Current investigation: {state.thought}. Approve next action?",
+                    event_name="awaiting_approval",
+                )
                 if d == "approve":
                     current_input = "Action APPROVED. Proceed."
+                    continue
                 elif d == "deny":
-                    current_input = f"Action DENIED. Reason/Hint: {hint}"
+                    # We can accept an optional hint via a second message if desired in future
+                    current_input = "Action DENIED."
+                    continue
                 elif d == "handoff":
                     current_input = "Manual Handoff requested."
+                    continue
                 else:
-                    await ws.send_json({
-                        "event": "error",
-                        "detail": "Unknown decision",
-                        "issueId": issue_id,
-                        "diag_thread_id": getattr(diag_thread, "service_thread_id", None)
-                    })
+                    payload = WebSocketPayload(
+                        event="error",
+                        issueId=issue_id,
+                        diag_thread_id=getattr(diag_thread, "service_thread_id", None),
+                    )
+                    await ws.send_json(payload.model_dump())
                     break
-                continue
 
             current_input = "Continue."
 
@@ -395,14 +423,11 @@ async def workflow_ws(ws: WebSocket):
         logger.info("WebSocket disconnected")
     except Exception as e:
         logger.error(f"Error in workflow_ws: {e}")
-        try:
-            await ws.send_json({"event": "error", "detail": str(e)})
-        except Exception:
-            pass
+        await ws.send_json({"event": "error", "detail": str(e)})
     finally:
         # Proper cleanup with error handling for each client
         cleanup_errors = []
-        
+
         # Close agents_client
         if agents_client:
             try:
@@ -410,7 +435,6 @@ async def workflow_ws(ws: WebSocket):
                 logger.info("agents_client closed")
             except Exception as e:
                 cleanup_errors.append(f"agents_client: {e}")
-                logger.error(f"Error closing agents_client: {e}")
         
         # Close project_client
         if project_client:
@@ -419,7 +443,6 @@ async def workflow_ws(ws: WebSocket):
                 logger.info("project_client closed")
             except Exception as e:
                 cleanup_errors.append(f"project_client: {e}")
-                logger.error(f"Error closing project_client: {e}")
         
         # Close credential
         if credential:
@@ -428,7 +451,6 @@ async def workflow_ws(ws: WebSocket):
                 logger.info("credential closed")
             except Exception as e:
                 cleanup_errors.append(f"credential: {e}")
-                logger.error(f"Error closing credential: {e}")
         
         # Close WebSocket
         try:

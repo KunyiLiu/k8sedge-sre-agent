@@ -5,15 +5,6 @@ export async function fetchTestMetric() {
   return res.json();
 }
 
-export async function fetchHealthDiagnostic(issue: HealthIssue) {
-  const res = await fetch("/api/workflow/diagnostic", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(issue),
-  });
-  return res.json();
-}
-
 // HealthIssue type for TypeScript
 export interface HealthIssue {
   issueType: string;
@@ -25,6 +16,7 @@ export interface HealthIssue {
   unhealthySince: string;
   unhealthyTimespan: number;
   message: string;
+  issueId: string;
 }
 
 // Helper to fetch health issues
@@ -60,25 +52,3 @@ export interface InterveneResponse {
   history: MessageItem[];
 }
 
-export async function getWorkflowHistory(diagThreadId: string, solThreadId?: string | null): Promise<{ diagnostic: MessageItem[]; solution: MessageItem[] }>{
-  const url = new URL("/api/workflow/history", window.location.origin);
-  url.searchParams.set("diag_thread_id", diagThreadId);
-  if (solThreadId) url.searchParams.set("sol_thread_id", solThreadId);
-  const res = await fetch(url.toString());
-  return res.json();
-}
-
-export async function interveneWorkflow(diagThreadId: string, decision: "approve" | "deny" | "handoff", hint?: string): Promise<InterveneResponse> {
-  const res = await fetch("/api/workflow/intervene", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ diag_thread_id: diagThreadId, decision, hint }),
-  });
-  return res.json();
-}
-
-export function issueKey(issue: HealthIssue): string {
-  const ns = issue.namespace || "default";
-  const container = issue.container || "";
-  return `${ns}:${issue.resourceType}:${issue.resourceName}:${container}`;
-}

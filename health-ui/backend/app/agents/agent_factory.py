@@ -102,7 +102,7 @@ class AgentFactory:
 
     "=== REACT DIAGNOSTIC LOOP ===\n"
     "For every diagnostic step, follow this loop strictly:\n"
-    "1. THOUGHT: Explain what the current evidence suggests and which hypothesis you are testing.\n"
+    "1. THOUGHT: Be concise (1-2 sentences); explain what the current evidence suggests and which hypothesis you are testing.\n"
     "2. ACTION: Invoke exactly ONE appropriate tool using valid JSON input.\n"
     "3. OBSERVATION: Analyze the tool output and update your hypothesis.\n\n"
 
