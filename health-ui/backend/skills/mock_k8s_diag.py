@@ -9,7 +9,8 @@ class MockK8sDiag:
     """Mocked Kubernetes diagnostics returning deterministic JSON strings for tests."""
 
     def __init__(self, profile: Optional[str] = None):
-        self.profile = profile or "default"
+        # Normalize profile to lowercase for simple matching
+        self.profile = (profile or "default").lower()
 
     def _load_kube_config(self) -> None:
         """No-op loader used in tests to mirror k8s config initialization."""
@@ -23,67 +24,118 @@ class MockK8sDiag:
         Useful for testing CrashLoopBackOff and OOMKilled patterns without a real cluster.
         """
         print(f"-----------get_pod_diagnostics(name={name}, namespace={namespace}, profile={self.profile})")
-        report = {
-            "phase": "CrashLoopBackOff" if self.profile == "crashloop" else "Running",
-            "restarts": 3 if self.profile == "crashloop" else 0,
-            "last_exit_reason": "Error" if self.profile == "crashloop" else None,
-            "last_exit_code": 1 if self.profile == "crashloop" else None,
-            "current_logs": f"Mock current logs for {name} in {namespace}",
-            "previous_logs": "java.lang.NullPointerException at com.app.Main.init..."
-        }
+        if self.profile == "imagepullbackoff":
+            report = {
+                "phase": "ImagePullBackOff",
+                "restarts": 0,
+                "last_exit_reason": "ErrImagePull",
+                "last_exit_code": None,
+                "current_logs": f"Failed to pull image for {name} in {namespace} (private registry/auth required)",
+                "previous_logs": ""
+            }
+        else:
+            report = {
+                "phase": "CrashLoopBackOff" if self.profile == "crashloop" else "Running",
+                "restarts": 3 if self.profile == "crashloop" else 0,
+                "last_exit_reason": "Error" if self.profile == "crashloop" else None,
+                "last_exit_code": 1 if self.profile == "crashloop" else None,
+                "current_logs": f"Mock current logs for {name} in {namespace}",
+                "previous_logs": "java.lang.NullPointerException at com.app.Main.init..."
+            }
         return json.dumps(report, ensure_ascii=False, indent=2)
 
     def get_pod_events(self, name: str, namespace: str, limit: int = 20) -> str:
         """Return recent events for a Pod (reason + message) as deterministic mock data."""
         print(f"-----------get_pod_events(name={name}, namespace={namespace}, limit={limit}, profile={self.profile})")
-        events = [
-            {
-                "type": "Warning",
-                "reason": "BackOff",
-                "message": f"Back-off restarting container for {name}",
-                "count": 5,
-            },
-            {
-                "type": "Normal",
-                "reason": "Pulled",
-                "message": f"Successfully pulled image for {name}",
-                "count": 1,
-            },
-        ]
+        if self.profile == "imagepullbackoff":
+            events = [
+                {
+                    "type": "Warning",
+                    "reason": "ErrImagePull",
+                    "message": f"Failed to pull image for {name}",
+                    "count": 3,
+                },
+                {
+                    "type": "Warning",
+                    "reason": "ImagePullBackOff",
+                    "message": f"Back-off pulling image for {name}",
+                    "count": 2,
+                },
+            ]
+        else:
+            events = [
+                {
+                    "type": "Warning",
+                    "reason": "BackOff",
+                    "message": f"Back-off restarting container for {name}",
+                    "count": 5,
+                },
+                {
+                    "type": "Normal",
+                    "reason": "Pulled",
+                    "message": f"Successfully pulled image for {name}",
+                    "count": 1,
+                },
+            ]
         return json.dumps(events[-limit:], ensure_ascii=False, indent=2)
 
     def get_image_pull_events(self, name: str, namespace: str) -> str:
         """Filter Pod events to those likely related to image pull failures (mock)."""
         print(f"-----------get_image_pull_events(name={name}, namespace={namespace}, profile={self.profile})")
-        events = [
-            {
-                "type": "Warning",
-                "reason": "ErrImagePull",
-                "message": f"Failed to pull image for {name}",
-                "count": 3,
-            },
-            {
-                "type": "Warning",
-                "reason": "ImagePullBackOff",
-                "message": f"Back-off pulling image for {name}",
-                "count": 2,
-            },
-        ]
+        if self.profile == "imagepullbackoff":
+            events = [
+                {
+                    "type": "Warning",
+                    "reason": "ErrImagePull",
+                    "message": f"Failed to pull image for {name}",
+                    "count": 5,
+                },
+                {
+                    "type": "Warning",
+                    "reason": "ImagePullBackOff",
+                    "message": f"Back-off pulling image for {name}",
+                    "count": 3,
+                },
+            ]
+        else:
+            events = [
+                {
+                    "type": "Warning",
+                    "reason": "ErrImagePull",
+                    "message": f"Failed to pull image for {name}",
+                    "count": 3,
+                },
+                {
+                    "type": "Warning",
+                    "reason": "ImagePullBackOff",
+                    "message": f"Back-off pulling image for {name}",
+                    "count": 2,
+                },
+            ]
         return json.dumps(events, ensure_ascii=False, indent=2)
 
     def get_service_account_details(self, name: str, namespace: str) -> str:
         """Return details of a ServiceAccount, including referenced imagePullSecrets (mock)."""
         print(f"-----------get_service_account_details(name={name}, namespace={namespace}, profile={self.profile})")
-        info = {
-            "name": name,
-            "secrets": ["default-token-abc123"],
-            "imagePullSecrets": ["regcred"],
-        }
+        if self.profile == "imagepullbackoff":
+            info = {
+                "name": name,
+                "secrets": [],
+                "imagePullSecrets": [],
+            }
+        else:
+            info = {
+                "name": name,
+                "secrets": ["default-token-abc123"],
+                "imagePullSecrets": ["regcred"],
+            }
         return json.dumps(info, ensure_ascii=False, indent=2)
 
     def get_secret_exists(self, name: str, namespace: str) -> str:
         """Return whether a Secret exists in the namespace (mock always True)."""
         print(f"-----------get_secret_exists(name={name}, namespace={namespace}, profile={self.profile})")
+        if self.profile == "imagepullbackoff":
+            return json.dumps({"exists": False})
         return json.dumps({"exists": True})
 
     def get_workload_yaml(self, kind: str, name: str, namespace: str) -> str:
@@ -93,6 +145,9 @@ class MockK8sDiag:
         commonly used in diagnostics (replicas, selectors, containers, resources, env).
         """
         print(f"-----------get_workload_yaml(kind={kind}, name={name}, namespace={namespace}, profile={self.profile})")
+        image = "mock.registry.local/mock:latest"
+        if self.profile == "imagepullbackoff":
+            image = "private.registry.local/protected/app:latest"
         obj = {
             "apiVersion": "apps/v1",
             "kind": kind,
@@ -106,7 +161,7 @@ class MockK8sDiag:
                         "containers": [
                             {
                                 "name": name,
-                                "image": "mock.registry.local/mock:latest",
+                                "image": image,
                                 "resources": {
                                     "requests": {"cpu": "100m", "memory": "128Mi"},
                                     "limits": {"cpu": "200m", "memory": "256Mi"},
@@ -123,13 +178,22 @@ class MockK8sDiag:
     def get_pod_top_metrics(self, name: str, namespace: str) -> str:
         """Attempt to fetch live pod metrics (mock), shaped like metrics.k8s.io output."""
         print(f"-----------get_pod_top_metrics(name={name}, namespace={namespace}, profile={self.profile})")
-        metrics = {
-            "metadata": {"name": name, "namespace": namespace},
-            "timestamp": "2026-01-18T00:00:00Z",
-            "containers": [
-                {"name": name, "usage": {"cpu": "50m", "memory": "180Mi"}}
-            ],
-        }
+        if self.profile == "imagepullbackoff":
+            metrics = {
+                "metadata": {"name": name, "namespace": namespace},
+                "timestamp": "2026-01-18T00:00:00Z",
+                "containers": [
+                    {"name": name, "usage": {"cpu": "0m", "memory": "0Mi"}}
+                ],
+            }
+        else:
+            metrics = {
+                "metadata": {"name": name, "namespace": namespace},
+                "timestamp": "2026-01-18T00:00:00Z",
+                "containers": [
+                    {"name": name, "usage": {"cpu": "50m", "memory": "180Mi"}}
+                ],
+            }
         return json.dumps(metrics, ensure_ascii=False, indent=2)
 
     def get_pod_scheduling_events(self, name: str, namespace: str, limit: int = 20) -> str:
