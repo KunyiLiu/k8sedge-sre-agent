@@ -19,7 +19,7 @@
 .issue-card:hover { box-shadow: 0 12px 28px rgba(0,0,0,0.35); border-color: #00d1ff; }
 .issue-card-header { font-weight: 600; display: flex; justify-content: space-between; align-items: center; font-size: 15px; }
 .issue-message { color: #c7dbff; }
-.status-badge { font-size: 12px; padding: 2px 8px; border-radius: 12px; background: rgba(0,209,255,0.12); border: 1px solid #00d1ff; color: #e9eef6; }
+.status-badge { font-size: 12px; padding: 2px 8px; border-radius: 12px; background: rgba(0,209,255,0.12); border: 1px solid #00d1ff; color: #e9eef6; display: inline-flex; align-items: center; gap: 6px; }
 
 /* Severity colors */
 .severity-critical { background: transparent; border-left: 4px solid #ff5252; }
@@ -85,9 +85,16 @@
 .escalation-line { color: #cfd8dc; }
 .email-draft summary { cursor: pointer; color: #82b1ff; margin-top: 6px; }
 .email-draft pre { white-space: pre-wrap; color: #e0e6ee; background: transparent; padding: 8px 0 0 0; margin: 0; }
+.email-draft-header { display: flex; justify-content: flex-end; margin-top: 6px; }
+.copy-button { font-size: 11px; padding: 4px 8px; background: transparent; border-color: #4f5b93; color: #cfd8dc; }
+.copy-button:hover { background: #1b2133; }
+.open-email-button { font-size: 11px; padding: 4px 8px; margin-left: 6px; background: transparent; border-color: #4f5b93; color: #cfd8dc; }
+.open-email-button:hover { background: #1b2133; }
 /* Loading strip and spinner */
 .loading-strip { display: flex; align-items: center; gap: 10px; background: #0e1114; border: 1px solid #242832; color: #cfd8dc; padding: 8px 10px; border-radius: 8px; margin-bottom: 12px; }
 .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #82b1ff; border-radius: 50%; animation: spin 0.9s linear infinite; }
+/* Smaller inline spinner for status badges and inline messages */
+.spinner-inline { width: 12px; height: 12px; border-width: 2px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* SolutionCard recommended fix block */

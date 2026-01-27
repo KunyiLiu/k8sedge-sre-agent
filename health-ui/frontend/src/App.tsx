@@ -7,364 +7,12 @@ import {
   type MessageItem
 } from "./api";
 import "./App.css";
+import { WorkflowWSClient } from "./workflow/WorkflowWSClient";
+import { IssueCard } from "./components/IssueCard";
+import { DiagnosticPanel } from "./components/DiagnosticPanel";
 
 // Severity sort order
 const severityOrder: Record<HealthIssue["severity"], number> = { Critical: 0, High: 1, Warning: 2, Info: 3 };
-
-// Simple WebSocket workflow client to manage one connection per issue
-class WorkflowWSClient {
-  ws: WebSocket | null = null;
-  url: string;
-  constructor(url: string) {
-    this.url = url;
-  }
-  connect(issue: HealthIssue, handlers: {
-    onOpen?: () => void;
-    onDiagnostic?: (payload: any) => void;
-    onHistory?: (payload: any) => void;
-    onAwaitingApproval?: (payload: any) => void;
-    onHandoff?: (payload: any) => void;
-    onComplete?: (payload: any) => void;
-    onError?: (payload: any) => void;
-  }) {
-    const ws = new WebSocket(this.url);
-    this.ws = ws;
-    ws.onopen = () => {
-      handlers.onOpen?.();
-      ws.send(JSON.stringify({ type: "start", issue }));
-    };
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data);
-        switch (msg.event) {
-          case "diagnostic":
-            handlers.onDiagnostic?.(msg);
-            break;
-          case "history":
-            handlers.onHistory?.(msg);
-            break;
-          case "awaiting_approval":
-            handlers.onAwaitingApproval?.(msg);
-            break;
-          case "handoff_approval":
-            handlers.onAwaitingApproval?.(msg);
-            break;
-          case "resume_available":
-            handlers.onAwaitingApproval?.(msg);
-            break;
-          case "handoff":
-            handlers.onHandoff?.(msg);
-            break;
-          case "complete":
-            handlers.onComplete?.(msg);
-            break;
-          case "error":
-            handlers.onError?.(msg);
-            break;
-          default:
-            break;
-        }
-      } catch (_) {
-        // ignore parse errors
-      }
-    };
-    ws.onerror = () => {
-      handlers.onError?.({ error: "WebSocket connection error" });
-    };
-    ws.onclose = () => {
-      // Mark closed so callers can decide to reconnect on next click
-      this.ws = null;
-    };
-  }
-  intervene(decision: "approve" | "deny" | "handoff", hint?: string) {
-    if (!this.ws) return;
-    const payload: any = { type: "intervene", decision };
-    if (hint) payload.hint = hint;
-    this.ws.send(JSON.stringify(payload));
-  }
-  resume(decision: "yes" | "no" = "yes") {
-    if (!this.ws) return;
-    const payload: any = { type: "resume", decision };
-    this.ws.send(JSON.stringify(payload));
-  }
-  close() {
-    try { this.ws?.close(); } catch (_) {}
-    this.ws = null;
-  }
-}
-
-function IssueCard({ issue, status, onClick, rootCause }: {
-  issue: HealthIssue;
-  status: { label: string; color: string };
-  onClick: () => void;
-  rootCause?: string | null;
-}) {
-  const sevClass = issue.severity === "Critical" ? "severity-critical" : issue.severity === "High" ? "severity-high" : issue.severity === "Warning" ? "severity-warning" : "severity-info";
-  return (
-    <div className={`issue-card ${sevClass}`} onClick={onClick}>
-      <div className="issue-card-header">
-        <span>{issue.severity} - {issue.issueType} ({issue.resourceType})</span>
-        <span className="status-badge" style={{ color: status.color, borderColor: status.color }}>{status.label}</span>
-      </div>
-      <div>Resource: {issue.resourceName} {issue.container ? `| Container: ${issue.container}` : ""}</div>
-      <div>Unhealthy Since: {issue.unhealthySince}</div>
-      <div className="issue-message">{issue.message}</div>
-      {rootCause && (
-        <div className="root-cause-highlight">Root Cause: {rootCause}</div>
-      )}
-    </div>
-  );
-}
-
-function SolutionCard({ state }: { state?: any | null }) {
-  if (!state) return null;
-  const keys = Object.keys(state || {});
-  const steps: string[] = (state.steps || state.remediation_steps || state.actions || []) as string[];
-  const recommendedFixText: string | undefined = typeof state.recommended_fix === "string" ? state.recommended_fix : (typeof state.recommendation === "string" ? state.recommendation : undefined);
-  const recommendedFixObj: any | null = (state.recommended_fix && typeof state.recommended_fix === "object") ? state.recommended_fix : null;
-  const escalation: any = state.escalation || state.escalation_email || state.email || null;
-  const hasRecommended = !!recommendedFixText || !!recommendedFixObj;
-  const hasEscalation = !!escalation;
-  const summary = (
-    hasRecommended
-      ? "Recommended fix is provided."
-      : hasEscalation
-      ? "Escalation is recommended."
-      : (state.summary || state.description || state.detail || state.message || "Solution details provided.")
-  ) as string;
-  return (
-    <div className="solution-card">
-      <div className="solution-title">Proposed Solution</div>
-      <div className="solution-summary">{summary}</div>
-      {Array.isArray(steps) && steps.length > 0 && (
-        <ol className="solution-steps">
-          {steps.map((s, i) => <li key={i}>{s}</li>)}
-        </ol>
-      )}
-      {recommendedFixText ? (
-        <div className="recommended-fix">
-          <div className="rf-title">Recommended Fix</div>
-          <div className="rf-body">{recommendedFixText}</div>
-        </div>
-      ) : recommendedFixObj ? (
-        <div className="recommended-fix">
-          <div className="rf-title">Recommended Fix</div>
-          {Array.isArray(recommendedFixObj.steps) && recommendedFixObj.steps.length > 0 && (
-            <ol className="solution-steps">
-              {recommendedFixObj.steps.map((s: string, i: number) => <li key={i}>{s}</li>)}
-            </ol>
-          )}
-          {recommendedFixObj.notes && (
-            <div className="rf-body">{recommendedFixObj.notes}</div>
-          )}
-        </div>
-      ) : escalation ? (
-        <div className="escalation-block">
-          <div className="escalation-title">Escalation</div>
-          {escalation.reason && (<div className="escalation-line">Reason: {escalation.reason}</div>)}
-          <details className="email-draft">
-            <summary>Email Draft</summary>
-            <pre>{escalation.email_draft || escalation.body || "No draft provided."}</pre>
-          </details>
-        </div>
-      ) : null}
-      {keys.length === 0 && <div className="solution-summary">No additional details.</div>}
-    </div>
-  );
-}
-
-function DiagnosticPanel({ convo, onApprove, onDeny, onHandoff, onResume, hintText, setHintText }: {
-  convo: {
-    state?: AgentState | null;
-    diagnostic: MessageItem[];
-    solution: MessageItem[];
-    thoughts?: { text: string; ts: number }[];
-    actions?: { text: string; ts: number }[];
-    awaitingApprovalQuestion?: string | null;
-    awaitingApprovalEvent?: string | null;
-    awaitingDecisionInFlight?: boolean;
-    isLoading?: boolean;
-    rootCause?: string | null;
-    solutionState?: any | null;
-    steps?: { thought?: string; action?: string; ts: number }[];
-  } | undefined;
-  onApprove: () => void;
-  onDeny: () => void;
-  onHandoff: () => void;
-  onResume?: () => void;
-  hintText: string;
-  setHintText: (v: string) => void;
-}) {
-  // Track which option was clicked to blackout others immediately and show working signal
-  const [clickedOption, setClickedOption] = useState<"approve" | "deny" | "handoff" | "resume" | null>(null);
-
-  // Reset clicked option when not awaiting or when no decision is in flight
-  useEffect(() => {
-    const awaitingNow = !!(convo?.awaitingApprovalQuestion) || (convo?.state?.next_action === "await_user_approval");
-    const inFlightNow = !!(convo?.awaitingDecisionInFlight);
-    if (!awaitingNow || !inFlightNow) {
-      setClickedOption(null);
-    }
-  }, [convo]);
-
-  if (!convo) return null;
-  const awaiting = !!convo.awaitingApprovalQuestion || convo.state?.next_action === "await_user_approval";
-  const awaitingEvent = convo.awaitingApprovalEvent || "";
-  const disabled = !!convo.awaitingDecisionInFlight;
-  const lockAll = disabled || clickedOption !== null; // lock and blackout others once an option is clicked
-  const glowStyle = lockAll ? { textShadow: "0 0 8px rgba(0,200,255,0.9), 0 0 18px rgba(0,200,255,0.6)" } as const : {} as const;
-
-  const handleOptionClick = (type: "approve" | "deny" | "handoff" | "resume") => {
-    setClickedOption(type);
-    switch (type) {
-      case "approve":
-        onApprove();
-        break;
-      case "deny":
-        onDeny();
-        break;
-      case "handoff":
-        onHandoff();
-        break;
-      case "resume":
-        onResume?.();
-        break;
-    }
-  };
-  const hasRoot = !!convo.rootCause;
-  return (
-    <div className="diagnostic-panel dark">
-      {convo.isLoading && (
-        <div className="loading-strip">
-          <div className="spinner" aria-label="Loading" />
-          <span>Connecting to diagnostic agent…</span>
-        </div>
-      )}
-      {hasRoot && (
-        <div className="root-banner">
-          <div className="root-title">CRITICAL: Identified Root Cause</div>
-          <div className="root-body">{convo.rootCause}</div>
-        </div>
-      )}
-      <div className="live-analysis">
-        <div className="panel-heading">Diagnostic Pipeline</div>
-        <div className="pipeline-list">
-          {(convo.steps || []).map((s, i) => (
-            <div key={i} className="pipeline-card">
-              {s.thought && (
-                <div className="pipeline-thought">
-                  <span className="code-tag">thought</span>
-                  <span className="code-text">{s.thought}</span>
-                </div>
-              )}
-              {s.action && (
-                <div className="pipeline-action">
-                  <span className="code-tag action">action</span>
-                  <button className="action-pill" title={s.action}>{s.action}</button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-      {awaiting && (
-        <div className="approval-banner dark">
-          <div className="question" style={{ marginBottom: 12, ...glowStyle }}>{convo.awaitingApprovalQuestion || "Action requires your decision."}</div>
-          <div className="actions" style={{ gap: 8, display: "flex", alignItems: "center", flexWrap: "wrap" }}>
-            {awaitingEvent === "handoff_approval" ? (
-              <>
-                <button
-                  className="btn primary"
-                  onClick={() => handleOptionClick("approve")}
-                  disabled={disabled || lockAll}
-                  style={lockAll && clickedOption !== "approve" ? { backgroundColor: "#000", color: "#fff", opacity: 0.6, borderColor: "#000", cursor: "not-allowed" } : undefined}
-                >
-                  Approve
-                </button>
-                <button
-                  className="btn"
-                  onClick={() => handleOptionClick("deny")}
-                  disabled={disabled || lockAll}
-                  style={lockAll && clickedOption !== "deny" ? { backgroundColor: "#000", color: "#fff", opacity: 0.6, borderColor: "#000", cursor: "not-allowed" } : undefined}
-                >
-                  Deny
-                </button>
-                <input
-                  className="hint-input"
-                  value={hintText}
-                  onChange={e => setHintText(e.target.value)}
-                  placeholder="Optional hint/reason"
-                  disabled={disabled || lockAll}
-                  style={lockAll ? { backgroundColor: "#111", color: "#888" } : undefined}
-                />
-              </>
-            ) : awaitingEvent === "awaiting_approval" ? (
-              <>
-                <button
-                  className="btn primary"
-                  onClick={() => handleOptionClick("approve")}
-                  disabled={disabled || lockAll}
-                  style={lockAll && clickedOption !== "approve" ? { backgroundColor: "#000", color: "#fff", opacity: 0.6, borderColor: "#000", cursor: "not-allowed" } : undefined}
-                >
-                  Approve
-                </button>
-                <button
-                  className="btn"
-                  onClick={() => handleOptionClick("deny")}
-                  disabled={disabled || lockAll}
-                  style={lockAll && clickedOption !== "deny" ? { backgroundColor: "#000", color: "#fff", opacity: 0.6, borderColor: "#000", cursor: "not-allowed" } : undefined}
-                >
-                  Deny
-                </button>
-                <button
-                  className="btn"
-                  onClick={() => handleOptionClick("handoff")}
-                  disabled={disabled || lockAll}
-                  style={lockAll && clickedOption !== "handoff" ? { backgroundColor: "#000", color: "#fff", opacity: 0.6, borderColor: "#000", cursor: "not-allowed" } : undefined}
-                >
-                  Manual Handoff
-                </button>
-              </>
-            ) : awaitingEvent === "resume_available" ? (
-              <>
-                <button
-                  className="btn primary"
-                  onClick={() => handleOptionClick("resume")}
-                  disabled={disabled || lockAll}
-                  style={lockAll && clickedOption !== "resume" ? { backgroundColor: "#000", color: "#fff", opacity: 0.6, borderColor: "#000", cursor: "not-allowed" } : undefined}
-                >
-                  Resume
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  className="btn primary"
-                  onClick={() => handleOptionClick("approve")}
-                  disabled={disabled || lockAll}
-                  style={lockAll && clickedOption !== "approve" ? { backgroundColor: "#000", color: "#fff", opacity: 0.6, borderColor: "#000", cursor: "not-allowed" } : undefined}
-                >
-                  Approve
-                </button>
-                <button
-                  className="btn"
-                  onClick={() => handleOptionClick("deny")}
-                  disabled={disabled || lockAll}
-                  style={lockAll && clickedOption !== "deny" ? { backgroundColor: "#000", color: "#fff", opacity: 0.6, borderColor: "#000", cursor: "not-allowed" } : undefined}
-                >
-                  Deny
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-      {convo.solutionState && (
-        <SolutionCard state={convo.solutionState} />
-      )}
-    </div>
-  );
-}
 
 function App()
 {
@@ -391,6 +39,14 @@ function App()
     loadIssues();
   }, [loadIssues]);
 
+  // Periodically refresh issues every 15 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadIssues();
+    }, 15 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [loadIssues]);
+
   const issuesByNamespace = useMemo(() => {
     const grouped: Record<string, HealthIssue[]> = {};
     for (const issue of issues) {
@@ -413,18 +69,29 @@ function App()
     setExpandedNamespaces(prev => ({ ...prev, [ns]: !prev[ns] }));
   };
 
-  const getStatusForIssue = (issue: HealthIssue): { label: string; color: string } => {
+  const getStatusForIssue = (issue: HealthIssue): { label: string; color: string; handingOff?: boolean } => {
     const key = issue.issueId;
     const t = threadsByIssue[key];
     const convo = conversationByIssue[key];
-    if (!t) return { label: "Not Started", color: "#607d8b" };
+    if (!t && !convo) return { label: "Not Started", color: "#607d8b" };
+
+    // While a handoff approval decision is being processed, show a transient "Handing off" state
+    if (convo?.awaitingDecisionInFlight && convo.awaitingApprovalEvent === "handoff_approval") {
+      return { label: "Handing off...", color: "#00bcd4", handingOff: true };
+    }
+
+    // If a solution thread or parsed solution state exists, prefer showing a handoff/solution status
+    if (t?.solThreadId || convo?.solutionState) {
+      return { label: "Handoff", color: "#1976d2" };
+    }
+
     const state = convo?.state || null;
     if (state) {
       if (state.next_action === "await_user_approval") return { label: "Await User Approval", color: "#f57c00" };
       if (state.next_action === "handoff_to_solution_agent") return { label: "Await Handoff Approval", color: "#f57c00" };
       return { label: "In Progress", color: "#1976d2" };
     }
-    if (t.solThreadId) return { label: "Handoff", color: "#1976d2" };
+
     return { label: "In Progress", color: "#1976d2" };
   };
 
@@ -562,6 +229,42 @@ function App()
       Object.values(wsClientsRef.current).forEach(c => c.close());
     };
   }, []);
+
+  useEffect(() => {
+    // Build a set of current issueIds from latest API data
+    const currentIds = new Set(issues.map(i => i.issueId));
+
+    // If the selected issue no longer exists, clear the selection
+    if (selectedIssueKey && !currentIds.has(selectedIssueKey)) {
+      setSelectedIssueKey(null);
+    }
+
+    // Close WS clients for removed issues and prune state
+    const newConvo: typeof conversationByIssue = {};
+    const newThreads: typeof threadsByIssue = {};
+
+    Object.keys(wsClientsRef.current).forEach(key => {
+      if (!currentIds.has(key)) {
+        // issue no longer present -> close and drop client
+        try { wsClientsRef.current[key]?.close(); } catch {}
+        delete wsClientsRef.current[key];
+      }
+    });
+
+    Object.entries(conversationByIssue).forEach(([key, value]) => {
+      if (currentIds.has(key)) newConvo[key] = value;
+    });
+    Object.entries(threadsByIssue).forEach(([key, value]) => {
+      if (currentIds.has(key)) newThreads[key] = value;
+    });
+
+    if (Object.keys(newConvo).length !== Object.keys(conversationByIssue).length) {
+      setConversationByIssue(newConvo);
+    }
+    if (Object.keys(newThreads).length !== Object.keys(threadsByIssue).length) {
+      setThreadsByIssue(newThreads);
+    }
+  }, [issues, selectedIssueKey, conversationByIssue, threadsByIssue]);
 
   return (
     <div className="app-container">
