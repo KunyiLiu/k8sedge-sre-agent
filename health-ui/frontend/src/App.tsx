@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { FiRefreshCw } from "react-icons/fi";
+import { FiRefreshCw, FiActivity } from "react-icons/fi";
 import {
   fetchTestMetric,
   type HealthIssue,
@@ -267,54 +267,68 @@ function App()
   }, [issues, selectedIssueKey, conversationByIssue, threadsByIssue]);
 
   return (
-    <div className="app-container">
-      <h1 className="header">K8s SRE Agent</h1>
-      <button className="refresh-button" onClick={loadIssues} disabled={loading} title="Manual Refresh">
-        <FiRefreshCw />
-        <span className="sr-only">Manual Refresh</span>
-      </button>
-      <div className={selectedIssueKey ? "grid" : "grid single"}>
-        <div className="left-pane">
-          {Object.entries(issuesByNamespace).map(([ns, nsIssues]) => (
-            <div key={ns} className="namespace-group">
-              <div className="namespace-header" onClick={() => toggleNamespace(ns)}>
-                <span>Namespace [{ns}] - {nsIssues.length} Issue{nsIssues.length !== 1 ? "s" : ""}</span>
-                <span className="expand-icon">{expandedNamespaces[ns] ? "▼" : "▶"}</span>
-              </div>
-              {expandedNamespaces[ns] && (
-                <div className="namespace-body">
-                  {nsIssues.map((issue, idx) => {
-                    const status = getStatusForIssue(issue);
-                    const key = issue.issueId;
-                    const rootCause = conversationByIssue[key]?.rootCause || null;
-                    return (
-                      <IssueCard
-                        key={idx}
-                        issue={issue}
-                        status={status}
-                        rootCause={rootCause}
-                        onClick={() => handleCardClick(issue)}
-                      />
-                    );
-                  })}
-                </div>
-              )}
+    <div className="app-root">
+      <div className="app-container">
+        <header className="app-header">
+          <div className="app-title-block">
+            <span className="app-logo" aria-hidden="true">
+              <FiActivity />
+            </span>
+            <div>
+              <h1 className="header">K8s SRE Agent</h1>
+              <p className="header-subtitle">Autonomous troubleshooting and guided remediation for your clusters</p>
             </div>
-          ))}
-        </div>
-        {selectedIssueKey && (
-          <div className="right-pane">
-            <DiagnosticPanel
-              convo={conversationByIssue[selectedIssueKey]}
-              onApprove={handleApprove}
-              onDeny={handleDeny}
-              onHandoff={handleHandoff}
-              onResume={handleResume}
-              hintText={hintText}
-              setHintText={setHintText}
-            />
           </div>
-        )}
+          <button className="refresh-button" onClick={loadIssues} disabled={loading} title="Manual Refresh">
+            <FiRefreshCw />
+            <span className="sr-only">Manual Refresh</span>
+          </button>
+        </header>
+        <div className={selectedIssueKey ? "grid" : "grid single"}>
+          <div className="left-pane">
+            {Object.entries(issuesByNamespace).map(([ns, nsIssues]) => (
+              <div key={ns} className="namespace-group">
+                <div className="namespace-header" onClick={() => toggleNamespace(ns)}>
+                  <span>
+                    Namespace [{ns}] - {nsIssues.length} Issue{nsIssues.length !== 1 ? "s" : ""}
+                  </span>
+                  <span className="expand-icon">{expandedNamespaces[ns] ? "▼" : "▶"}</span>
+                </div>
+                {expandedNamespaces[ns] && (
+                  <div className="namespace-body">
+                    {nsIssues.map((issue, idx) => {
+                      const status = getStatusForIssue(issue);
+                      const key = issue.issueId;
+                      const rootCause = conversationByIssue[key]?.rootCause || null;
+                      return (
+                        <IssueCard
+                          key={idx}
+                          issue={issue}
+                          status={status}
+                          rootCause={rootCause}
+                          onClick={() => handleCardClick(issue)}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {selectedIssueKey && (
+            <div className="right-pane">
+              <DiagnosticPanel
+                convo={conversationByIssue[selectedIssueKey]}
+                onApprove={handleApprove}
+                onDeny={handleDeny}
+                onHandoff={handleHandoff}
+                onResume={handleResume}
+                hintText={hintText}
+                setHintText={setHintText}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -14,10 +14,22 @@ export function IssueCard({ issue, status, onClick, rootCause }: {
     ? "severity-warning"
     : "severity-info";
 
+  const severityIcon = issue.severity === "Critical"
+    ? "⛔"
+    : issue.severity === "High"
+    ? "🔥"
+    : issue.severity === "Warning"
+    ? "⚠️"
+    : "ℹ️";
+
   return (
-    <div className={`issue-card ${sevClass}`} onClick={onClick}>
+    <div className={`issue-card ${sevClass}`} onClick={onClick} title="Click to troubleshoot">
       <div className="issue-card-header">
-        <span>{issue.severity} - {issue.issueType} ({issue.resourceType})</span>
+        <span>
+          <span aria-hidden="true" style={{ marginRight: 6 }}>{severityIcon}</span>
+          <span className="sr-only">{issue.severity} - </span>
+          {issue.issueType} ({issue.resourceType})
+        </span>
         <span className="status-badge" style={{ color: status.color, borderColor: status.color }}>
           {status.handingOff && (
             <span className="spinner spinner-inline" aria-label="Handing off" />

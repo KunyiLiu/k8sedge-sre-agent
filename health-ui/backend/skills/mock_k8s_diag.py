@@ -39,7 +39,7 @@ class MockK8sDiag:
                 "restarts": 3 if self.profile == "crashloop" else 0,
                 "last_exit_reason": "Error" if self.profile == "crashloop" else None,
                 "last_exit_code": 1 if self.profile == "crashloop" else None,
-                "current_logs": f"Mock current logs for {name} in {namespace}",
+                "current_logs": f"CRITICAL: {name} in {namespace} experiencing repeated failures; readiness probe failing; high error rate; immediate attention required",
                 "previous_logs": "java.lang.NullPointerException at com.app.Main.init..."
             }
         return json.dumps(report, ensure_ascii=False, indent=2)

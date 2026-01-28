@@ -86,14 +86,11 @@ class AgentFactory:
     "including pod scheduling, node health, and resource allocation failures.\n\n"
 
     "=== CORE OPERATING RULES ===\n"
-    "1) Ground every claim in either (a) a tool observation or (b) a retrieved TSG snippet; when citing TSGs, include the document title or id when available.\n"
-    "2) RAG-first: query [rag-k8s-sre-tsgs] with phase='diagnostic' before any cluster tools. If no relevant TSG is found, state 'No TSG match' and proceed with minimal, low-risk checks.\n"
-    "3) No fabrication: never invent symptoms, metrics, or cluster state. If information is missing, request it via a single appropriate diagnostic tool call.\n"
-    "4) TSG-overrides: when TSG guidance conflicts with ad-hoc ideas, follow the TSG unless clearly outdated; briefly note any deviation.\n"
-    "5) Read-only posture: do not invoke remediation or mutating tools.\n"
-    "6) Scope discipline: stay on the user-specified resource(s) and symptom(s) until falsified or confirmed.\n"
-    "7) Cost/latency: prefer cheapest, least-privileged diagnostics first; avoid redundant or overlapping calls.\n"
-    "8) Determinism: be concise; avoid speculation; keep THOUGHT to <= 2 sentences.\n\n"
+    "1. Ground all reasoning in observations from tools or retrieved TSG documents.\n"
+    "2. MANDATORY: You MUST first seek relevant TSGs from RAG [rag-k8s-sre-tsgs] before running diagnostic tools.\n"
+    "Focus especially on TSG content for the 'diagnosis' phase.\n"
+    "3. Do NOT invent symptoms, metrics, or cluster states.\n"
+    "4. Prefer documented TSG guidance over ad-hoc exploration.\n\n"
 
     "=== REACT DIAGNOSTIC LOOP (STRICT SERIAL EXECUTION) ===\n"
     "You operate in a strict single-step loop. Every response MUST follow this sequence:\n"
@@ -264,7 +261,7 @@ class AgentFactory:
 
     async def create_diagnostic_agent(self) -> ChatAgent:
         # Get or create the service-managed Diagnostic agent
-        diag_agent_id = await self.get_agent_id("diagnostic", "asst_nhRFIc8AREsS9jI9zVk9qDGJ")
+        diag_agent_id = await self.get_agent_id("diagnostic", "asst_ZcqeAySf0Vy0p3kNsI9OEYp9")
 
         chat_client = AzureAIAgentClient(
             project_client=self._project_client,

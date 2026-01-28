@@ -207,7 +207,7 @@ async def _run_solution_and_emit(
     prompt = (
         f"Provide solution or escalation email for the issue {issue.issueType} for {issue.resourceType} "
         f"[resourceName={issue.resourceName}, container={issue.container}, namespace={issue.namespace}]. "
-        f"Diagnostic root cause: [{state.root_cause}]. Other evidence: [{state.thought}]"
+        f"Diagnostic root cause: [{state.root_cause}]. Other evidence: [{state.thought}]. It is recommended to escalate."
     )
     result = await sol_agent.run(prompt, thread=sol_thread)
 
