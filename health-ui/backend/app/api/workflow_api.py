@@ -235,7 +235,22 @@ async def _run_solution_and_emit(
         sol_thread_id=sol_thread_id,
         state=solution_state,
     )
-    await ws.send_json(handoff_payload.model_dump())
+    try:
+        await ws.send_json(handoff_payload.model_dump())
+    except Exception as e:
+        logger.warning(f"WebSocket send failed for handoff: {e}")
+        return
+    # Emit updated histories after handoff to allow frontend to render full context
+    try:
+        await _send_thread_histories(
+            ws,
+            agents_client,
+            issue_id=issue_id,
+            diag_thread_id=getattr(diag_thread, "service_thread_id", None),
+            sol_thread_id=sol_thread_id,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to send thread histories post-handoff: {e}")
     
     complete_payload = WebSocketPayload(
         event="complete",
@@ -244,7 +259,11 @@ async def _run_solution_and_emit(
         diag_thread_id=getattr(diag_thread, "service_thread_id", None),
         sol_thread_id=sol_thread_id,
     )
-    await ws.send_json(complete_payload.model_dump())
+    try:
+        await ws.send_json(complete_payload.model_dump())
+    except Exception as e:
+        logger.warning(f"WebSocket send failed for complete: {e}")
+        return
 
 @router.websocket("/workflow/ws")
 async def workflow_ws(ws: WebSocket):
@@ -264,7 +283,10 @@ async def workflow_ws(ws: WebSocket):
         issue = HealthIssue(**init_msg["issue"])
         project_client, agents_client, credential = await _get_clients()
 
-        tools = create_mock_tools(profile="crashloop")
+        if issue.issueType == "ImagePullBackOff":
+            tools = create_mock_tools(profile="imagepullbackoff")
+        else:
+            tools = create_mock_tools(profile="crashloop")
         factory = AgentFactory(project_client=project_client, agents_client=agents_client, credential=credential, tools=tools)
         diag_agent = await factory.create_diagnostic_agent()
 
@@ -284,12 +306,34 @@ async def workflow_ws(ws: WebSocket):
         logger.info(f"---ISSUE_THREAD_MAP: {ISSUE_THREAD_MAP} for issueId={issue_id}---")
 
         if existing_diag_id:
-            await _send_thread_histories(
-                ws, agents_client,
-                issue_id=issue_id,
-                diag_thread_id=existing_diag_id,
-                sol_thread_id=existing_sol_id,
-            )
+            try:
+                await _send_thread_histories(
+                    ws, agents_client,
+                    issue_id=issue_id,
+                    diag_thread_id=existing_diag_id,
+                    sol_thread_id=existing_sol_id,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send existing thread histories: {e}")
+                # Fallback: send minimal history using last solution message
+                last_sol_text = ""
+                try:
+                    if existing_sol_id:
+                        last_sol_text = await _get_last_message_text(agents_client, existing_sol_id)
+                except Exception as e2:
+                    logger.warning(f"Failed to fetch last solution message: {e2}")
+                try:
+                    payload = WebSocketPayload(
+                        event="history",
+                        issueId=issue_id,
+                        diag_thread_id=existing_diag_id,
+                        sol_thread_id=existing_sol_id,
+                        diag_history=[],
+                        sol_history=[MessageItem(role="assistant", text=last_sol_text)] if last_sol_text else [],
+                    )
+                    await ws.send_json(payload.model_dump())
+                except Exception as e3:
+                    logger.warning(f"Fallback history send failed: {e3}")
             if existing_sol_id:
                 # If solution thread exists, just show histories and finish
                 payload = WebSocketPayload(
@@ -299,7 +343,10 @@ async def workflow_ws(ws: WebSocket):
                     diag_thread_id=existing_diag_id,
                     sol_thread_id=existing_sol_id,
                 )
-                await ws.send_json(payload.model_dump())
+                try:
+                    await ws.send_json(payload.model_dump())
+                except Exception as e:
+                    logger.warning(f"WebSocket send failed for existing complete: {e}")
                 return
             # Ask to resume diagnostic
             should_resume = await _ask_resume(ws, issue_id=issue_id, diag_thread_id=existing_diag_id)

@@ -85,29 +85,17 @@ class AgentFactory:
     "You are an SRE Diagnostic Agent responsible for diagnosing Kubernetes (K8S) cluster issues, "
     "including pod scheduling, node health, and resource allocation failures.\n\n"
 
-    "Your goal is to identify the most likely root cause using evidence from telemetry, "
-    "cluster state, and documented Troubleshooting Guides (TSGs).\n\n"
-
     "=== CORE OPERATING RULES ===\n"
-    "1. You MUST ground all reasoning in observations from tools or retrieved TSG documents.\n"
-    "2. You MUST first seek relevant TSGs from RAG [rag-k8s-sre-tsgs] before running any diagnostic tools.\n"
+    "1. Ground all reasoning in observations from tools or retrieved TSG documents.\n"
+    "2. MANDATORY: You MUST first seek relevant TSGs from RAG [rag-k8s-sre-tsgs] before running diagnostic tools.\n"
     "3. Do NOT invent symptoms, metrics, or cluster states.\n"
-    "4. Prefer documented TSG guidance over ad-hoc exploration when available.\n\n"
+    "4. Prefer documented TSG guidance over ad-hoc exploration.\n\n"
 
-    "=== TSG EXECUTION PROTOCOL (MANDATORY) ===\n\n"
-    "Once a TSG is retrieved, you MUST explicitly state the TSG-ID you are following in your thought.\n\n"
-    "You MUST execute the Diagnostic Decision Tree in the exact order specified (Step 1, then Step 2, etc.).\n\n"
-    "Do NOT skip to general diagnostics unless the TSG's \"Stop Condition\" or \"Escalation\" criteria are met.\n\n"
-    "If a TSG defines a variable (e.g., report = get_pod_diagnostics), you MUST call that tool immediately and use its specific output fields (like last_exit_code) to determine your next action.\n\n"
-
-    "=== REACT DIAGNOSTIC LOOP ===\n"
-    "For every diagnostic step, follow this loop strictly:\n"
-    "1. THOUGHT: Be concise (1-2 sentences); explain what the current evidence suggests and which hypothesis you are testing.\n"
-    "2. ACTION: Invoke exactly ONE appropriate tool using valid JSON input.\n"
-    "3. OBSERVATION: Analyze the tool output and update your hypothesis.\n\n"
-
-    "You may continue this loop only while new evidence is being collected.\n"
-    "Do NOT repeat tools unless new data or a new hypothesis justifies it.\n\n"
+    "=== REACT DIAGNOSTIC LOOP (STRICT SERIAL EXECUTION) ===\n"
+    "You operate in a strict single-step loop. Every response MUST follow this sequence:\n"
+    "1. THOUGHT: Be concise (1 or 2 sentences); explain what evidence suggests and which hypothesis/TSG step you are testing.\n"
+    "2. ACTION: You MUST trigger EXACTLY ONE system function call per response. NEVER batch multiple calls.\n"
+    "3. STOP: After triggering a tool, you MUST stop and wait for the observation. Do not proceed until data is returned.\n\n"
 
     "=== TOOL SELECTION RULES ===\n"
     "• Use telemetry and cluster-inspection tools to validate or falsify hypotheses suggested by TSGs.\n"
@@ -115,7 +103,7 @@ class AgentFactory:
     "• If a TSG explicitly recommends a diagnostic sequence, follow it.\n\n"
 
     "=== TERMINATION & HANDOFF LOGIC ===\n"
-    "Set 'next_action' according to the following rules:\n\n"
+    "Set 'next_action' according to the following rules (do NOT use the 'action' field for control flow):\n\n"
 
     "• continue:\n"
     "  - You have an unresolved hypothesis\n"
@@ -134,14 +122,34 @@ class AgentFactory:
     "  - The next steps are remediation, mitigation, or configuration changes\n\n"
 
     "=== OUTPUT FORMAT ===\n"
-    "Respond ONLY with JSON matching this schema:\n"
+    "Respond ONLY with a JSON object matching this schema:\n"
     "{\n"
     "  'thought': string,\n"
     "  'action': string | null,\n"
     "  'action_input': object | null,\n"
     "  'next_action': 'continue' | 'await_user_approval' | 'handoff_to_solution_agent',\n"
     "  'root_cause': string | null\n"
-    "}\n"
+    "}\n\n"
+
+    "=== EXAMPLES ===\n"
+    "Example 1 (Starting a diagnosis):\n"
+    "User: 'Investigate the issue CrashLoopBackOff for ResourceType.Pod [resourceName=web-0, container=web, namespace=default].'\n"
+    "{ 'thought': 'Pod is in CrashLoopBackOff. Gather diagnostics to check status, restart count, exit code, and container logs.',\n"
+    "  'action': 'functions.get_pod_diagnostics',\n"
+    "  'action_input': { 'name': 'web-0', 'namespace': 'default' },\n"
+    "  'next_action': 'continue',\n"
+    "  'root_cause': null }\n\n"
+
+
+    "Example 2 (Identifying root cause):\n"
+    "Observation: 'Logs show OOMKilled.'\n"
+    "{\n"
+    "  'thought': 'The logs confirm the container was killed due to memory exhaustion. No further diagnostics needed.',\n"
+    "  'action': null,\n"
+    "  'action_input': null,\n"
+    "  'next_action': 'handoff_to_solution_agent',\n"
+    "  'root_cause': 'Memory limit reached causing OOMKill.'\n"
+    "}"
 )
             temperature = 0.0
         elif agent_type == "solution":
@@ -164,6 +172,8 @@ class AgentFactory:
 
     "=== TSG (RAG) USAGE ===\n"
     "• Retrieve remediation and escalation TSGs relevant to the root cause.\n"
+    "• Always query the Kubernetes SRE TSG RAG index [rag-k8s-sre-tsgs] as your primary source of solution guidance.\n"
+    "• Focus especially on TSG content for the 'solution' phase (phase = 'solution'), including concrete remediation steps and escalation patterns.\n"
     "• Use TSGs to determine:\n"
     "  - Approved self-service fixes\n"
     "  - Whether escalation is recommended or required\n"
@@ -195,6 +205,44 @@ class AgentFactory:
     "  'risk_level': 'low' | 'medium' | 'high',\n"
     "  'assumptions': string[],\n"
     "  'references': string[]\n"
+    "}\n\n"
+    "Notes:\n"
+    "- Always ground your recommended_fix, escalation, and risk_level in TSG content retrieved from the [rag-k8s-sre-tsgs] index, focusing on documents for phase = 'solution'.\n\n"
+    "Example for input: \"Provide solution or escalation email for the issue CrashLoopBackOff for ResourceType.Pod [resourceName=web-0, container=web, namespace=default]. Diagnostic root cause: [Application crash due to repeated container failures during startup causing CrashLoopBackOff.]. Other evidence: [Pod events show BackOff from restarts with no infrastructure or scheduling errors, indicating the issue is likely application-level. The CrashLoopBackOff is caused by the container repeatedly crashing. I will handoff to the solution agent with the root cause as application crash during initialization causing CrashLoopBackOff.]\"\n"
+    "{\n"
+    "  \"thought\": \"The root cause is an application crash during container startup causing CrashLoopBackOff. This is an application-level issue with no infrastructure or scheduling errors. According to TSGs, remediation involves checking application logs, validating configuration, and possibly updating the container image or application code. Since this is an application crash, self-service remediation is possible if the user has access to application logs and deployment manifests. Escalation is recommended if the user cannot resolve the application crash or lacks access to modify the deployment or application code.\",\n"
+    "  \"recommended_fix\": {\n"
+    "    \"steps\": [\n"
+    "      \"Use 'kubectl logs web-0 -c web -n default' to check the container logs for error messages during startup.\",\n"
+    "      \"Review the application configuration and environment variables for correctness.\",\n"
+    "      \"If recent changes were made, consider rolling back to a previous stable version.\",\n"
+    "      \"Check resource limits and requests to ensure the container has sufficient resources.\",\n"
+    "      \"If the issue persists, rebuild and redeploy the container image after fixing the application code.\",\n"
+    "      \"Use 'kubectl describe pod web-0 -n default' to verify no other events indicate underlying issues.\"\n"
+    "    ],\n"
+    "    \"commands\": [\n"
+    "      \"kubectl logs web-0 -c web -n default\",\n"
+    "      \"kubectl describe pod web-0 -n default\"\n"
+    "    ]\n"
+    "  },\n"
+    "  \"escalation\": {\n"
+    "    \"recommended\": true,\n"
+    "    \"reason\": \"The application crash during initialization causing CrashLoopBackOff may require developer intervention to fix the application code or configuration. If the user cannot resolve the issue with self-service steps, escalation to the application development team is necessary.\",\n"
+    "    \"target_team\": \"Application Development Team\",\n"
+    "    \"severity\": \"medium\",\n"
+    "    \"email_draft\": \"Subject: Escalation: Application Crash Causing CrashLoopBackOff for Pod web-0 in Namespace default\\n\\nHello Application Development Team,\\n\\nWe have identified a CrashLoopBackOff issue affecting the pod 'web-0' in the 'default' namespace. The root cause has been diagnosed as an application crash during container startup, leading to repeated container failures.\\n\\nPod events indicate BackOff from restarts without any infrastructure or scheduling errors, confirming this is an application-level problem.\\n\\nAttempts to remediate by checking logs and configuration have not resolved the issue. We recommend your team investigate the application code and container image to identify and fix the root cause of the crash.\\n\\nPlease prioritize this issue as it impacts service availability.\\n\\nThank you,\\nSRE Team\"\n"
+    "  },\n"
+    "  \"risk_level\": \"medium\",\n"
+    "  \"assumptions\": [\n"
+    "    \"User has access to kubectl and the cluster namespace 'default'.\",\n"
+    "    \"Application logs provide sufficient information to diagnose the crash.\",\n"
+    "    \"Application development team has the ability to fix and redeploy the application code.\"\n"
+    "  ],\n"
+    "  \"references\": [\n"
+    "    \"TSG: Kubernetes Pod CrashLoopBackOff Troubleshooting\",\n"
+    "    \"TSG: Application-Level Crash Remediation in Kubernetes\",\n"
+    "    \"Kubernetes Documentation: Debugging Pods\"\n"
+    "  ]\n"
     "}\n"
 )
             temperature = 0.2
@@ -212,7 +260,7 @@ class AgentFactory:
 
     async def create_diagnostic_agent(self) -> ChatAgent:
         # Get or create the service-managed Diagnostic agent
-        diag_agent_id = await self.get_agent_id("diagnostic", "asst_a0u0StvtTgiJdavwhXhiPe7a")
+        diag_agent_id = await self.get_agent_id("diagnostic", "asst_")
 
         chat_client = AzureAIAgentClient(
             project_client=self._project_client,
@@ -232,7 +280,7 @@ class AgentFactory:
 
     async def create_solution_agent(self) -> ChatAgent:
         # Get or create the service-managed Solution agent
-        sol_agent_id = await self.get_agent_id("solution", "asst_eZFYewQs8IRfZyinuuLnRIhk")
+        sol_agent_id = await self.get_agent_id("solution", "​​asst_amMDR2y2VbhNsqGZHtBIsyBb")
 
         chat_client = AzureAIAgentClient(
             project_client=self._project_client,

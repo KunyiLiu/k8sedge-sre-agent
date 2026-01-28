@@ -7,175 +7,20 @@ import {
   type MessageItem
 } from "./api";
 import "./App.css";
+import { WorkflowWSClient } from "./workflow/WorkflowWSClient";
+import { IssueCard } from "./components/IssueCard";
+import { DiagnosticPanel } from "./components/DiagnosticPanel";
 
 // Severity sort order
 const severityOrder: Record<HealthIssue["severity"], number> = { Critical: 0, High: 1, Warning: 2, Info: 3 };
 
-// Simple WebSocket workflow client to manage one connection per issue
-class WorkflowWSClient {
-  ws: WebSocket | null = null;
-  url: string;
-  constructor(url: string) {
-    this.url = url;
-  }
-  connect(issue: HealthIssue, handlers: {
-    onOpen?: () => void;
-    onDiagnostic?: (payload: any) => void;
-    onHistory?: (payload: any) => void;
-    onAwaitingApproval?: (payload: any) => void;
-    onHandoff?: (payload: any) => void;
-    onComplete?: (payload: any) => void;
-    onError?: (payload: any) => void;
-  }) {
-    const ws = new WebSocket(this.url);
-    this.ws = ws;
-    ws.onopen = () => {
-      handlers.onOpen?.();
-      ws.send(JSON.stringify({ type: "start", issue }));
-    };
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data);
-        switch (msg.event) {
-          case "diagnostic":
-            handlers.onDiagnostic?.(msg);
-            break;
-          case "history":
-            handlers.onHistory?.(msg);
-            break;
-          case "awaiting_approval":
-            handlers.onAwaitingApproval?.(msg);
-            break;
-          case "handoff":
-            handlers.onHandoff?.(msg);
-            break;
-          case "complete":
-            handlers.onComplete?.(msg);
-            break;
-          case "error":
-            handlers.onError?.(msg);
-            break;
-          default:
-            break;
-        }
-      } catch (_) {
-        // ignore parse errors
-      }
-    };
-    ws.onerror = () => {
-      handlers.onError?.({ error: "WebSocket connection error" });
-    };
-  }
-  intervene(decision: "approve" | "deny" | "handoff", hint?: string) {
-    if (!this.ws) return;
-    const payload: any = { type: "intervene", decision };
-    if (hint) payload.hint = hint;
-    this.ws.send(JSON.stringify(payload));
-  }
-  close() {
-    try { this.ws?.close(); } catch (_) {}
-    this.ws = null;
-  }
-}
-
-function IssueCard({ issue, status, onClick, rootCause }: {
-  issue: HealthIssue;
-  status: { label: string; color: string };
-  onClick: () => void;
-  rootCause?: string | null;
-}) {
-  const sevClass = issue.severity === "Critical" ? "severity-critical" : issue.severity === "High" ? "severity-high" : issue.severity === "Warning" ? "severity-warning" : "severity-info";
-  return (
-    <div className={`issue-card ${sevClass}`} onClick={onClick}>
-      <div className="issue-card-header">
-        <span>{issue.severity} - {issue.issueType} ({issue.resourceType})</span>
-        <span className="status-badge" style={{ color: status.color, borderColor: status.color }}>{status.label}</span>
-      </div>
-      <div>Resource: {issue.resourceName} {issue.container ? `| Container: ${issue.container}` : ""}</div>
-      <div>Unhealthy Since: {issue.unhealthySince}</div>
-      <div className="issue-message">{issue.message}</div>
-      {rootCause && (
-        <div className="root-cause-highlight">Root Cause: {rootCause}</div>
-      )}
-    </div>
-  );
-}
-
-function DiagnosticPanel({ convo, onApprove, onDeny, onHandoff, hintText, setHintText }: {
-  convo: {
-    state?: AgentState | null;
-    diagnostic: MessageItem[];
-    solution: MessageItem[];
-    thoughts?: { text: string; ts: number }[];
-    actions?: { text: string; ts: number }[];
-    awaitingApprovalQuestion?: string | null;
-  } | undefined;
-  onApprove: () => void;
-  onDeny: () => void;
-  onHandoff: () => void;
-  hintText: string;
-  setHintText: (v: string) => void;
-}) {
-  if (!convo) return <div className="diagnostic-panel"><div className="placeholder">Select an issue to start diagnosis</div></div>;
-  const awaiting = !!convo.awaitingApprovalQuestion || convo.state?.next_action === "await_user_approval";
-  return (
-    <div className="diagnostic-panel">
-      <h3>Diagnostic Workflow</h3>
-      {awaiting && (
-        <div className="approval-banner">
-          <div className="question">{convo.awaitingApprovalQuestion || "Approve next action?"}</div>
-          <div className="actions">
-            <button className="btn" onClick={onApprove}>Approve</button>
-            <button className="btn" onClick={onHandoff}>Handoff</button>
-            <input className="hint-input" value={hintText} onChange={e => setHintText(e.target.value)} placeholder="Denial reason or hint" />
-            <button className="btn" onClick={onDeny}>Deny</button>
-          </div>
-        </div>
-      )}
-      <div className="panel-grid">
-        <div>
-          <h4>Agent State</h4>
-          <pre className="pre-box">{JSON.stringify(convo.state || null, null, 2)}</pre>
-        </div>
-        <div>
-          <h4>Thought Stream</h4>
-          <ul className="stream-list">
-            {(convo.thoughts || []).map((t, i) => (
-              <li key={i}>{t.text}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
-      <div className="panel-grid">
-        <div>
-          <h4>Proposed Actions</h4>
-          <div className="actions-list">
-            {(convo.actions || []).map((a, i) => (
-              <button className="action-pill" key={i} title={a.text}>{a.text}</button>
-            ))}
-          </div>
-        </div>
-        <div>
-          <h4>Diagnostic History</h4>
-          <pre className="pre-box">{JSON.stringify(convo.diagnostic || [], null, 2)}</pre>
-        </div>
-      </div>
-      <div className="panel-grid">
-        <div>
-          <h4>Solution History</h4>
-          <pre className="pre-box">{JSON.stringify(convo.solution || [], null, 2)}</pre>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function App() {
+function App()
+{
   const [issues, setIssues] = useState<HealthIssue[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedNamespaces, setExpandedNamespaces] = useState<Record<string, boolean>>({});
   const [threadsByIssue, setThreadsByIssue] = useState<Record<string, { diagThreadId: string; solThreadId?: string | null }>>({});
-  const [conversationByIssue, setConversationByIssue] = useState<Record<string, { state?: AgentState | null; diagnostic: MessageItem[]; solution: MessageItem[]; thoughts?: { text: string; ts: number }[]; actions?: { text: string; ts: number }[]; awaitingApprovalQuestion?: string | null; rootCause?: string | null }>>({});
+  const [conversationByIssue, setConversationByIssue] = useState<Record<string, { state?: AgentState | null; diagnostic: MessageItem[]; solution: MessageItem[]; thoughts?: { text: string; ts: number }[]; actions?: { text: string; ts: number }[]; awaitingApprovalQuestion?: string | null; awaitingApprovalEvent?: string | null; awaitingDecisionInFlight?: boolean; isLoading?: boolean; rootCause?: string | null; solutionState?: any | null; steps?: { thought?: string; action?: string; ts: number }[] }>>({});
   const [selectedIssueKey, setSelectedIssueKey] = useState<string | null>(null);
   const [hintText, setHintText] = useState<string>("");
   const wsClientsRef = useRef<Record<string, WorkflowWSClient>>({});
@@ -192,6 +37,14 @@ function App() {
 
   useEffect(() => {
     loadIssues();
+  }, [loadIssues]);
+
+  // Periodically refresh issues every 15 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadIssues();
+    }, 15 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [loadIssues]);
 
   const issuesByNamespace = useMemo(() => {
@@ -216,34 +69,54 @@ function App() {
     setExpandedNamespaces(prev => ({ ...prev, [ns]: !prev[ns] }));
   };
 
-  const getStatusForIssue = (issue: HealthIssue): { label: string; color: string } => {
+  const getStatusForIssue = (issue: HealthIssue): { label: string; color: string; handingOff?: boolean } => {
     const key = issue.issueId;
     const t = threadsByIssue[key];
     const convo = conversationByIssue[key];
-    if (!t) return { label: "Not Started", color: "#607d8b" };
+    if (!t && !convo) return { label: "Not Started", color: "#607d8b" };
+
+    // While a handoff approval decision is being processed, show a transient "Handing off" state
+    if (convo?.awaitingDecisionInFlight && convo.awaitingApprovalEvent === "handoff_approval") {
+      return { label: "Handing off...", color: "#00bcd4", handingOff: true };
+    }
+
+    // If a solution thread or parsed solution state exists, prefer showing a handoff/solution status
+    if (t?.solThreadId || convo?.solutionState) {
+      return { label: "Handoff", color: "#1976d2" };
+    }
+
     const state = convo?.state || null;
     if (state) {
       if (state.next_action === "await_user_approval") return { label: "Await User Approval", color: "#f57c00" };
-      if (state.next_action === "handoff_to_solution_agent") return { label: "Handoff", color: "#1976d2" };
+      if (state.next_action === "handoff_to_solution_agent") return { label: "Await Handoff Approval", color: "#f57c00" };
       return { label: "In Progress", color: "#1976d2" };
     }
-    if (t.solThreadId) return { label: "Handoff", color: "#1976d2" };
+
     return { label: "In Progress", color: "#1976d2" };
   };
 
   const handleCardClick = (issue: HealthIssue) => {
     const key = issue.issueId;
     setSelectedIssueKey(key);
+    // Optimistically ensure a convo object exists to avoid blank panel flicker
+    setConversationByIssue(prev => ({
+      ...prev,
+      [key]: prev[key] || { state: null, diagnostic: [], solution: [], thoughts: [], actions: [], awaitingApprovalQuestion: null, awaitingApprovalEvent: null, awaitingDecisionInFlight: false, isLoading: true, rootCause: null, solutionState: null, steps: [] }
+    }));
     // Ensure client exists per issue
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
     const host = window.location.host;
     const url = `${proto}://${host}/api/workflow/ws`;
-    if (!wsClientsRef.current[key]) {
+    const existing = wsClientsRef.current[key];
+    if (existing?.ws) {
+      try { existing.close(); } catch { /* ignore */ }
+      wsClientsRef.current[key] = undefined as any;
+    }
+    {
       wsClientsRef.current[key] = new WorkflowWSClient(url);
       wsClientsRef.current[key].connect(issue, {
         onOpen: () => {
-          // Reset convo containers on fresh connect
-          setConversationByIssue(prev => ({ ...prev, [key]: { state: null, diagnostic: [], solution: [], thoughts: [], actions: [], awaitingApprovalQuestion: null, rootCause: null } }));
+          setConversationByIssue(prev => ({ ...prev, [key]: { state: null, diagnostic: [], solution: [], thoughts: [], actions: [], awaitingApprovalQuestion: null, awaitingApprovalEvent: null, awaitingDecisionInFlight: false, isLoading: true, rootCause: null, solutionState: null, steps: [] } }));
         },
         onDiagnostic: (msg) => {
           const state: AgentState | null = msg.state || null;
@@ -251,63 +124,147 @@ function App() {
           const action = state?.action || "";
           const root = state?.root_cause || null;
           setConversationByIssue(prev => {
-            const base = prev[key] || { state: null, diagnostic: [], solution: [], thoughts: [], actions: [], awaitingApprovalQuestion: null, rootCause: null };
+            const base = prev[key] || { state: null, diagnostic: [], solution: [], thoughts: [], actions: [], awaitingApprovalQuestion: null, awaitingApprovalEvent: null, awaitingDecisionInFlight: false, rootCause: null, solutionState: null, steps: [] };
             const thoughts = base.thoughts || [];
             const actions = base.actions || [];
-            const newThoughts = thought ? [...thoughts, { text: thought, ts: Date.now() }] : thoughts;
-            const newActions = action ? [...actions, { text: action, ts: Date.now() }] : actions;
-            return { ...prev, [key]: { ...base, state, thoughts: newThoughts, actions: newActions, rootCause: root || base.rootCause || null } };
+            const steps = base.steps || [];
+            const thoughtExists = thought ? thoughts.some(t => t.text === thought) : false;
+            const actionExists = action ? actions.some(a => a.text === action) : false;
+            const stepExists = (thought || action) ? steps.some(s => (s.thought || "") === (thought || "") && (s.action || "") === (action || "")) : false;
+            const newThoughts = thought && !thoughtExists ? [...thoughts, { text: thought, ts: Date.now() }] : thoughts;
+            const newActions = action && !actionExists ? [...actions, { text: action, ts: Date.now() }] : actions;
+            const newSteps = (thought || action) && !stepExists ? [...steps, { thought: thought || undefined, action: action || undefined, ts: Date.now() }] : steps;
+            return { ...prev, [key]: { ...base, state, thoughts: newThoughts, actions: newActions, steps: newSteps, awaitingDecisionInFlight: false, isLoading: false, rootCause: root || base.rootCause || null } };
           });
-          // Track threads
           setThreadsByIssue(prev => ({ ...prev, [key]: { diagThreadId: msg.diag_thread_id, solThreadId: prev[key]?.solThreadId || null } }));
         },
         onHistory: (msg) => {
           const diag = (msg.diag_history || []) as MessageItem[];
           const sol = (msg.sol_history || []) as MessageItem[];
-          setConversationByIssue(prev => ({ ...prev, [key]: { ...(prev[key] || { state: null }), diagnostic: diag, solution: sol } }));
+          const derivedThoughts: { text: string; ts: number }[] = [];
+          const derivedActions: { text: string; ts: number }[] = [];
+          const derivedSteps: { thought?: string; action?: string; ts: number }[] = [];
+          let derivedRoot: string | null = null;
+          diag.forEach((m: any) => {
+            const txt: string = m.text || "";
+            try {
+              const obj = JSON.parse(txt);
+              if (obj && typeof obj === "object") {
+                if (obj.thought) derivedThoughts.push({ text: obj.thought, ts: Date.now() });
+                if (obj.action) derivedActions.push({ text: obj.action, ts: Date.now() });
+                if (obj.thought || obj.action) derivedSteps.push({ thought: obj.thought, action: obj.action, ts: Date.now() });
+                if (!derivedRoot && obj.root_cause) derivedRoot = obj.root_cause;
+              }
+            } catch (_) {
+              if (txt) {
+                derivedThoughts.push({ text: txt, ts: Date.now() });
+                derivedSteps.push({ thought: txt, ts: Date.now() });
+              }
+            }
+          });
+          let solutionState: any | null = null;
+          const lastSol = sol.length ? sol[sol.length - 1] : null;
+          if (lastSol && lastSol.text) {
+            try { solutionState = JSON.parse(lastSol.text); } catch (_) { solutionState = { summary: lastSol.text }; }
+          }
+          setConversationByIssue(prev => ({
+            ...prev,
+            [key]: {
+              ...(prev[key] || { state: null, awaitingApprovalQuestion: null, awaitingApprovalEvent: null, awaitingDecisionInFlight: false, isLoading: false }),
+              diagnostic: diag,
+              solution: sol,
+              thoughts: derivedThoughts,
+              actions: derivedActions,
+              steps: derivedSteps,
+              solutionState: solutionState ?? prev[key]?.solutionState ?? null,
+              rootCause: derivedRoot ?? prev[key]?.rootCause ?? null,
+              awaitingDecisionInFlight: false,
+              isLoading: false,
+            },
+          }));
           setThreadsByIssue(prev => ({ ...prev, [key]: { diagThreadId: msg.diag_thread_id, solThreadId: msg.sol_thread_id || null } }));
         },
         onAwaitingApproval: (msg) => {
-          setConversationByIssue(prev => ({ ...prev, [key]: { ...(prev[key] || { state: null, diagnostic: [], solution: [], thoughts: [], actions: [] }), awaitingApprovalQuestion: msg.question || "Approve next action?" } }));
+          setConversationByIssue(prev => ({ ...prev, [key]: { ...(prev[key] || { state: null, diagnostic: [], solution: [], thoughts: [], actions: [], solutionState: null, rootCause: null }), awaitingApprovalQuestion: msg.question || "Approve next action?", awaitingApprovalEvent: msg.event || null, awaitingDecisionInFlight: false, isLoading: false } }));
         },
         onHandoff: (msg) => {
           setThreadsByIssue(prev => ({ ...prev, [key]: { ...(prev[key] || { diagThreadId: msg.diag_thread_id }), solThreadId: msg.sol_thread_id } }));
-          // Clear awaiting approval when handoff occurs
-          setConversationByIssue(prev => ({ ...prev, [key]: { ...(prev[key] || {}), awaitingApprovalQuestion: null } }));
+          setConversationByIssue(prev => ({ ...prev, [key]: { ...(prev[key] || {}), awaitingApprovalQuestion: null, awaitingApprovalEvent: null, awaitingDecisionInFlight: false, isLoading: false, solutionState: msg.state || prev[key]?.solutionState || null } }));
         },
         onComplete: (msg) => {
           setThreadsByIssue(prev => ({ ...prev, [key]: { diagThreadId: msg.diag_thread_id, solThreadId: msg.sol_thread_id || prev[key]?.solThreadId || null } }));
+          setConversationByIssue(prev => ({ ...prev, [key]: { ...(prev[key] || {}), awaitingDecisionInFlight: false, isLoading: false } }));
         },
         onError: (msg) => {
-          setConversationByIssue(prev => ({ ...prev, [key]: { ...(prev[key] || { state: null, diagnostic: [], solution: [] }), awaitingApprovalQuestion: null } }));
           console.warn("Workflow error", msg);
         },
       });
-    } else {
-      // Already connected, do nothing
     }
   };
 
   const handleApprove = () => {
     if (!selectedIssueKey) return;
     wsClientsRef.current[selectedIssueKey]?.intervene("approve");
+    setConversationByIssue(prev => ({ ...prev, [selectedIssueKey]: { ...(prev[selectedIssueKey] || {}), awaitingDecisionInFlight: true } }));
   };
   const handleDeny = () => {
     if (!selectedIssueKey) return;
     wsClientsRef.current[selectedIssueKey]?.intervene("deny", hintText);
     setHintText("");
+    setConversationByIssue(prev => ({ ...prev, [selectedIssueKey]: { ...(prev[selectedIssueKey] || {}), awaitingDecisionInFlight: true } }));
   };
   const handleHandoff = () => {
     if (!selectedIssueKey) return;
     wsClientsRef.current[selectedIssueKey]?.intervene("handoff");
+    setConversationByIssue(prev => ({ ...prev, [selectedIssueKey]: { ...(prev[selectedIssueKey] || {}), awaitingDecisionInFlight: true } }));
   };
-
+  const handleResume = () => {
+    if (!selectedIssueKey) return;
+    wsClientsRef.current[selectedIssueKey]?.resume("yes");
+    setConversationByIssue(prev => ({ ...prev, [selectedIssueKey]: { ...(prev[selectedIssueKey] || {}), awaitingDecisionInFlight: true } }));
+  };
   useEffect(() => {
     return () => {
       // Cleanup all open sockets on unmount
       Object.values(wsClientsRef.current).forEach(c => c.close());
     };
   }, []);
+
+  useEffect(() => {
+    // Build a set of current issueIds from latest API data
+    const currentIds = new Set(issues.map(i => i.issueId));
+
+    // If the selected issue no longer exists, clear the selection
+    if (selectedIssueKey && !currentIds.has(selectedIssueKey)) {
+      setSelectedIssueKey(null);
+    }
+
+    // Close WS clients for removed issues and prune state
+    const newConvo: typeof conversationByIssue = {};
+    const newThreads: typeof threadsByIssue = {};
+
+    Object.keys(wsClientsRef.current).forEach(key => {
+      if (!currentIds.has(key)) {
+        // issue no longer present -> close and drop client
+        try { wsClientsRef.current[key]?.close(); } catch {}
+        delete wsClientsRef.current[key];
+      }
+    });
+
+    Object.entries(conversationByIssue).forEach(([key, value]) => {
+      if (currentIds.has(key)) newConvo[key] = value;
+    });
+    Object.entries(threadsByIssue).forEach(([key, value]) => {
+      if (currentIds.has(key)) newThreads[key] = value;
+    });
+
+    if (Object.keys(newConvo).length !== Object.keys(conversationByIssue).length) {
+      setConversationByIssue(newConvo);
+    }
+    if (Object.keys(newThreads).length !== Object.keys(threadsByIssue).length) {
+      setThreadsByIssue(newThreads);
+    }
+  }, [issues, selectedIssueKey, conversationByIssue, threadsByIssue]);
 
   return (
     <div className="app-container">
@@ -316,7 +273,7 @@ function App() {
         <FiRefreshCw />
         <span className="sr-only">Manual Refresh</span>
       </button>
-      <div className="grid">
+      <div className={selectedIssueKey ? "grid" : "grid single"}>
         <div className="left-pane">
           {Object.entries(issuesByNamespace).map(([ns, nsIssues]) => (
             <div key={ns} className="namespace-group">
@@ -345,16 +302,19 @@ function App() {
             </div>
           ))}
         </div>
-        <div className="right-pane">
-          <DiagnosticPanel
-            convo={selectedIssueKey ? conversationByIssue[selectedIssueKey] : undefined}
-            onApprove={handleApprove}
-            onDeny={handleDeny}
-            onHandoff={handleHandoff}
-            hintText={hintText}
-            setHintText={setHintText}
-          />
-        </div>
+        {selectedIssueKey && (
+          <div className="right-pane">
+            <DiagnosticPanel
+              convo={conversationByIssue[selectedIssueKey]}
+              onApprove={handleApprove}
+              onDeny={handleDeny}
+              onHandoff={handleHandoff}
+              onResume={handleResume}
+              hintText={hintText}
+              setHintText={setHintText}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
