@@ -10,7 +10,7 @@ from azure.ai.agents.models import AzureAISearchTool, AzureAISearchQueryType
 from agent_framework.azure import AzureAIAgentClient
 from agent_framework import ChatAgent
 
-from app.models import AgentState
+from app.models import AgentState, SolutionResponse
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,7 @@ class AgentFactory:
     "=== CORE OPERATING RULES ===\n"
     "1. Ground all reasoning in observations from tools or retrieved TSG documents.\n"
     "2. MANDATORY: You MUST first seek relevant TSGs from RAG [rag-k8s-sre-tsgs] before running diagnostic tools.\n"
+    "Focus especially on TSG content for the 'diagnosis' phase.\n"
     "3. Do NOT invent symptoms, metrics, or cluster states.\n"
     "4. Prefer documented TSG guidance over ad-hoc exploration.\n\n"
 
@@ -260,7 +261,7 @@ class AgentFactory:
 
     async def create_diagnostic_agent(self) -> ChatAgent:
         # Get or create the service-managed Diagnostic agent
-        diag_agent_id = await self.get_agent_id("diagnostic", "asst_")
+        diag_agent_id = await self.get_agent_id("diagnostic", "asst_ZcqeAySf0Vy0p3kNsI9OEYp9")
 
         chat_client = AzureAIAgentClient(
             project_client=self._project_client,
@@ -280,7 +281,7 @@ class AgentFactory:
 
     async def create_solution_agent(self) -> ChatAgent:
         # Get or create the service-managed Solution agent
-        sol_agent_id = await self.get_agent_id("solution", "​​asst_amMDR2y2VbhNsqGZHtBIsyBb")
+        sol_agent_id = await self.get_agent_id("solution", "asst_PEI6ukfVYs3FuR6wh0HPXH1f")
 
         chat_client = AzureAIAgentClient(
             project_client=self._project_client,
@@ -292,4 +293,5 @@ class AgentFactory:
         return ChatAgent(
             chat_client=chat_client,
             allow_multiple_tool_calls=False,
+            response_format=SolutionResponse,
         )
