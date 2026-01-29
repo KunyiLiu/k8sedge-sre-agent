@@ -3,7 +3,7 @@ AI-Powered Kubernetes Troubleshooting Agent (MVP)  An AI-assisted SRE troublesho
 
 ## Project Overview
 
-K8sEdge SRE Agent is a side project that demonstrates how AI agents can assist SREs in diagnosing Kubernetes issues.
+K8sEdge SRE Agent is a project that demonstrates how AI agents can assist SREs in diagnosing Kubernetes issues.
 
 The system:
 
@@ -15,7 +15,7 @@ The system:
 
 * Uses TSG playbooks (Troubleshooting Guides) as RAG context
 
-* Keeps humans in control by requiring explicit approval before each diagnostic action
+* Keeps humans in control by requiring explicit approval before handing off the solution stage and unsure state
 
 * Produces a clear root cause analysis and recommended fix
 
@@ -33,7 +33,7 @@ Prometheus ──► Health Aggregator (Code)
             User selects issue
                    │
                    ▼
-         Diagnostic Agent (ReAct + RAG)
+         Diagnostic Agent (ReAct + RAG + function calling)
                    │
          (Human approval each step)
                    │
@@ -41,7 +41,7 @@ Prometheus ──► Health Aggregator (Code)
             Root Cause Identified
                    │
                    ▼
-            Solution Agent
+            Solution Agent (RAG)
                    │
                    ▼
        Fix Suggestions / Escalation
@@ -91,7 +91,7 @@ RAG over Kubernetes TSG playbooks
 
 Skills (kubectl, Prometheus query, log fetch)
 
-Stops before each action and asks for user approval
+Stops before the ambiguous state and asks for user approval
 
 Terminates when root cause confidence is reached
 
@@ -116,3 +116,30 @@ Allows user to start diagnostic flow
 Displays step-by-step reasoning and actions
 
 Human-in-the-loop confirmation
+
+## Highlights
+
+- **Not another chatbot:** The system combines a deterministic health aggregator, ReAct agents with explicit function-calling, TSG-backed RAG, and human approval gates. It avoids open-ended chat, focuses on actionable diagnostics, and produces a clear and auditable trail of actions and observations.
+- **Faster triage:** Converts Prometheus signals and cluster context into structured, step-by-step diagnostics that converge on a defensible root cause.
+- **Common pod issues covered:** CrashLoopBackOff, ImagePullBackOff, Pending, OOMKilled, Liveness/Readiness failures, DNS resolution errors, volume mount issues, security policy problems, network policy blocks, init container failures, terminating/evicted states.
+- **Human-in-control:** All agent actions require explicit approval; unsafe or unknown actions are denied. The system is designed for guided remediation, not autonomous changes.
+- **Clear handoffs:** Produces fix suggestions and an optional escalation summary that can be shared with on-call or platform teams.
+
+## Evaluation
+
+- **MTTR (diagnostic):** Track median time from issue detection to confirmed root cause. Compare baselines (manual) vs with the agent enabled. Instrument timestamps at detection, agent start, key steps, and RCA confirmation.
+- **Human deny rate:** Measure the percentage of agent-proposed steps that the user denies. High deny rates can indicate overreach or unclear actions; use this to tune allowed actions and prompt strategies.
+- **Accuracy (RCA confirmation):** Percentage of diagnostic sessions where users confirm the agent’s proposed root cause as correct.
+- **Coverage:** Share of detected issues that fall within supported pod troubleshooting scenarios and can run end-to-end diagnostics.
+
+## Constraints
+
+- **Scope of RAG:** The knowledge corpus and TSG references currently focus on pod-level troubleshooting. Node-level, service/ingress, storage classes, and advanced networking are limited or out of scope.
+- **Diagnostic focus:** Agents primarily diagnose pod issues (containers, images, probes, DNS, mounts, policies). Non-pod resources are treated only insofar as they impact pods.
+- **Metrics source:** Current unhealthy detection relies on Prometheus queries targeting pod-related states.
+
+## TODO
+
+1. **Enable solution agents to run fix functions:** Add gated, auditable fix function execution with strong safeguards, dry-run modes, and explicit approval requirements.
+2. **Add allowed actions policy:** Define a whitelist of permitted functions/commands (e.g., `kubectl` read-only, specific patch operations), with per-environment configuration and clear UI surfacing.
+3. **Trigger agents via Kubernetes CRD:** Replace the separate periodic Prometheus polling backend with a custom resource that directly triggers diagnostic/solution agents. Controllers can react to CR events, referencing Prometheus findings and cluster context.
