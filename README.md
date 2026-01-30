@@ -1,6 +1,8 @@
 # k8sedge-sre-agent
 AI-Powered Kubernetes Troubleshooting Agent (MVP). An AI-assisted SRE troubleshooting system that detects unhealthy Kubernetes workloads using Prometheus metrics and guides users through human-in-the-loop, ReAct-style diagnostics powered by Azure AI Foundry.
 
+![Project Architecture](project_architecture.png)
+
 ## Project Overview
 
 K8sEdge SRE Agent is a project that demonstrates how AI agents can assist SREs in diagnosing Kubernetes issues.
@@ -84,6 +86,18 @@ Prometheus ──► Health Aggregator (Code)
 - **Human-in-control:** All agent actions require explicit approval; unsafe or unknown actions are denied. The system is designed for guided remediation, not autonomous changes.
 - **Clear handoffs:** Produces fix suggestions and an optional escalation summary that can be shared with on-call or platform teams.
 
+## Azure AI Search + ChatAgents Setup
+
+This project uses Azure AI Search to index Kubernetes Troubleshooting Guides (TSGs) and Azure AI Foundry ChatAgents to retrieve and reason over them.
+
+- Provision Azure AI Search: Create a Search service and note the endpoint and Admin key.
+- Create index `sre-tsg-index`: Include fields `id`, `title`, `category`, `pod_issue`, `filepath`, `content`. Optionally add a vector field for advanced semantic retrieval.
+- Ingest TSGs: Upload Markdown from `health-ui/backend/tsgs/` using the `azure-search-documents` client or an Indexer.
+- Wire up ChatAgents: In Azure AI Studio Projects, add a Knowledge connection to your Search index and attach it to an Agent with Retrieval enabled.
+- Configure backend: Set `AZURE_SEARCH_ENDPOINT`, `AZURE_SEARCH_INDEX`, `AZURE_SEARCH_API_KEY`, and `AZURE_AI_PROJECT_ENDPOINT` in your `.env`.
+
+Details and a ready-to-use ingestion snippet are documented in [health-ui/backend/README.md](health-ui/backend/README.md).
+
 ## Evaluation
 
 - **MTTR (diagnostic):** Track median time from issue detection to confirmed root cause. Compare baselines (manual) vs with the agent enabled. Instrument timestamps at detection, agent start, key steps, and RCA confirmation.
@@ -96,6 +110,36 @@ Prometheus ──► Health Aggregator (Code)
 - **Scope of RAG:** The knowledge corpus and TSG references currently focus on pod-level troubleshooting. Node-level, service/ingress, storage classes, and advanced networking are limited or out of scope.
 - **Diagnostic focus:** Agents primarily diagnose pod issues (containers, images, probes, DNS, mounts, policies). Non-pod resources are treated only insofar as they impact pods.
 - **Metrics source:** Current unhealthy detection relies on Prometheus queries targeting pod-related states.
+
+## Deploy Demo Apps to Kubernetes
+
+Deploy the intentionally unhealthy demo workloads to exercise diagnostics. Use the helper scripts for a guided setup and cleanup.
+
+- **Prerequisites:** `kubectl` configured for your cluster, permissions to create namespaces and workloads, and a non‑production environment.
+- **Windows:** Run scripts via Git Bash or WSL. macOS/Linux can run them directly in a shell.
+
+Setup (creates namespaces, prompts for each demo workload, deploys agent UI):
+```bash
+cd /path/to/k8sedge-sre-agent
+./scripts/setup.sh
+```
+
+Verify demo workloads (expected to show unhealthy states):
+```bash
+kubectl get pods -n demo-apps -o wide
+kubectl describe pod <pod-name> -n demo-apps
+kubectl logs <pod-name> -n demo-apps --previous
+```
+
+Teardown (removes demo workloads and SRE Agent namespace):
+```bash
+./scripts/teardown.sh
+```
+
+Notes:
+- Manifests are intentionally misconfigured to trigger issues like CrashLoopBackOff, ImagePullBackOff, Pending, OOM, and probe failures.
+- Prometheus-based detection can lag slightly depending on scrape intervals.
+- If your cluster enforces strict policies (PSPs, NetworkPolicies), outcomes may vary; adjust manifests as needed.
 
 ## TODO
 
