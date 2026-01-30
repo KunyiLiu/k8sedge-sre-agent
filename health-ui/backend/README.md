@@ -16,6 +16,8 @@ Required variables:
 - `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET`: Azure service principal for Azure Monitor and Agents.
 - `PROMETHEUS_QUERY_ENDPOINT`: Your Azure Monitor Prometheus query endpoint, e.g. `https://<name>.<region>.prometheus.monitor.azure.com`.
 - `AZURE_AI_PROJECT_ENDPOINT`: Endpoint for Azure AI Agent Framework Projects (used by `/api/workflow/test`).
+ - `AZURE_SEARCH_ENDPOINT`, `AZURE_SEARCH_INDEX`, `AZURE_SEARCH_API_KEY`: Azure AI Search configuration for RAG over TSG content.
+	 - Optional: `AZURE_SEARCH_TEXT_FIELD` (default `content`), `AZURE_SEARCH_VECTOR_FIELD` (if using vector search).
 
 Example `.env` (place in `health-ui/.env` during Docker Compose, or in `backend/.env` for local):
 ```
@@ -24,6 +26,11 @@ AZURE_TENANT_ID=<guid>
 AZURE_CLIENT_SECRET=<secret>
 PROMETHEUS_QUERY_ENDPOINT=https://<name>.<region>.prometheus.monitor.azure.com
 AZURE_AI_PROJECT_ENDPOINT=https://<your-ai-project-endpoint>
+AZURE_SEARCH_ENDPOINT=https://<your-search-name>.search.windows.net
+AZURE_SEARCH_INDEX=sre-tsg-index
+AZURE_SEARCH_API_KEY=<admin-or-query-key>
+AZURE_SEARCH_TEXT_FIELD=content
+AZURE_SEARCH_VECTOR_FIELD=vector
 ```
 
 ## Run Locally (without Docker)
@@ -84,6 +91,21 @@ Once running locally on `http://localhost:8000`:
   curl -X POST http://localhost:8000/api/workflow/test -H "Content-Type: application/json" -d '{"pod_name":"demo-pod-123"}'
   ```
 
+## Why WebSocket for the Workflow API
+
+The diagnostic workflow is a long-running, step-by-step process (ReAct + function calling) that benefits from real-time, bidirectional communication between the UI and backend.
+
+- Real-time streaming: The agent emits incremental events (think/act/observe, tool outputs, status changes). WebSockets let the server push updates immediately without polling or waiting for the full response.
+- Bidirectional control: Human-in-the-loop approvals/denials, pause/resume, and cancellation are sent from the client mid-run. Duplex WebSocket messaging supports these control signals natively; SSE is server-to-client only and HTTP would require many request/response cycles.
+- Session-centric state: Each workflow maintains context across steps. A persistent WebSocket session simplifies correlation, avoids repeated stateless rehydration, and reduces orchestration overhead.
+- Backpressure and cancellation: The client can signal cancel/pause; the server can pace event flow. This is harder to model cleanly with plain HTTP.
+- Efficiency: Eliminates repeated polling, reducing backend load and latency. The UI receives granular progress updates, improving UX for multi-minute diagnostics.
+- Reliability hooks: Heartbeats/ping-pong and reconnection strategies can be layered for robust UX over flaky networks.
+
+Notes:
+- Metrics/health endpoints remain HTTP (short, stateless queries).
+- Ensure ingress/proxies permit WebSocket upgrades and suitable timeouts (e.g., Nginx `upgrade` headers, idle timeout > workflow duration).
+
 ## Run with Docker (standalone)
 Build and run just the backend container from `health-ui/`:
 ```powershell
@@ -114,6 +136,101 @@ Use the provided `docker-compose.yml` in `health-ui/`.
 	```powershell
 	curl http://localhost:8000/healthz
 	```
+
+	## Azure AI Search (TSG RAG) Setup
+
+	Use Azure AI Search to index the Troubleshooting Guides (TSGs) for Retrieval-Augmented Generation.
+
+	1. Provision Azure AI Search
+		- Create an Azure AI Search service (Basic or Standard) in Azure Portal.
+		- Note the service endpoint (e.g., `https://<name>.search.windows.net`) and an Admin key.
+
+	2. Create a `sre-tsg-index`
+		- Minimal text-only schema (simple and effective):
+		  ```json
+		  {
+			 "name": "sre-tsg-index",
+			 "fields": [
+				{"name": "id", "type": "Edm.String", "key": true},
+				{"name": "title", "type": "Edm.String", "searchable": true, "filterable": true},
+				{"name": "category", "type": "Edm.String", "searchable": true, "filterable": true, "facetable": true},
+				{"name": "pod_issue", "type": "Edm.String", "searchable": true, "filterable": true, "facetable": true},
+				{"name": "filepath", "type": "Edm.String", "filterable": true},
+				{"name": "content", "type": "Edm.String", "searchable": true}
+			 ]
+		  }
+		  ```
+		- Optional vector search (advanced): add a `vector` field and `vectorSearch` config. If using integrated vectorization, attach a vectorizer linked to your Azure OpenAI embeddings deployment.
+
+	3. Ingest TSG Markdown files
+		- The TSG source files are under `health-ui/backend/tsgs/`.
+		- Example Python ingestion (text-only) using `azure-search-documents`:
+		  ```powershell
+		  pip install azure-search-documents
+		  ```
+		  ```python
+		  import os, glob
+		  from azure.search.documents import SearchClient
+		  from azure.core.credentials import AzureKeyCredential
+
+		  endpoint = os.environ["AZURE_SEARCH_ENDPOINT"]
+		  index_name = os.environ.get("AZURE_SEARCH_INDEX", "sre-tsg-index")
+		  api_key = os.environ["AZURE_SEARCH_API_KEY"]
+		  root = os.path.join("health-ui", "backend", "tsgs")
+
+		  client = SearchClient(endpoint=endpoint, index_name=index_name, credential=AzureKeyCredential(api_key))
+		  docs = []
+		  for path in glob.glob(os.path.join(root, "*.md")):
+				with open(path, "r", encoding="utf-8") as f:
+					 content = f.read()
+				fname = os.path.basename(path)
+				title = fname.replace("TSG-", "").replace(".md", "")
+				issue = next((p for p in [
+					 "CRASHLOOP","IMAGEPULL","PENDING","OOM","LIVENESS","READINESS","DNS","MOUNT","SECURITY","NETPOL","INITFAIL","EVICTED","TERMINATING","CONTAINERCREATING"
+				] if p in title.upper()), "GENERAL")
+				docs.append({
+					 "id": fname,
+					 "title": title,
+					 "category": "TSG",
+					 "pod_issue": issue,
+					 "filepath": path.replace("\\", "/"),
+					 "content": content
+				})
+		  client.upload_documents(docs)
+		  print(f"Uploaded {len(docs)} TSG docs to index '{index_name}'.")
+		  ```
+
+	4. Configure environment
+		- Set `AZURE_SEARCH_ENDPOINT`, `AZURE_SEARCH_INDEX`, and `AZURE_SEARCH_API_KEY` in your `.env`.
+		- For vector search, also set `AZURE_SEARCH_VECTOR_FIELD`.
+
+	5. Retrieval behavior
+		- Backend agents can use keyword + semantic search, or vector search if enabled. Ensure fields align with `AZURE_SEARCH_TEXT_FIELD`/`AZURE_SEARCH_VECTOR_FIELD`.
+
+	## ChatAgents (Azure AI Agent Framework)
+
+	Integrate ChatAgents with your Search index through Azure AI Foundry Projects.
+
+	1. Create an Azure AI Project
+		- In Azure AI Studio, create a Project and note its endpoint (e.g., `https://<project>.models.ai.azure.com`).
+
+	2. Register Azure AI Search as Knowledge
+		- In the Project, add a Knowledge connection to your Azure AI Search service and select the `sre-tsg-index`.
+		- Choose retrieval mode: semantic keyword or vector (if configured). Optionally add chunking and page extraction.
+
+	3. Create an Agent with Retrieval
+		- Define a Chat Agent and enable Retrieval, selecting the Knowledge you created.
+		- Provide system instructions to ground responses in Kubernetes diagnostics and TSGs.
+
+	4. Backend configuration
+		- Set `AZURE_AI_PROJECT_ENDPOINT` and Search env vars. The `/api/workflow/test` will use the Project to orchestrate a simple diagnostic step that can query Knowledge.
+
+	5. Quick validation
+		- After indexing and attaching Knowledge, call:
+		  ```powershell
+		  curl -X POST http://localhost:8000/api/workflow/test -H "Content-Type: application/json" -d '{"pod_name":"demo-pod-123"}'
+		  ```
+		- Inspect responses to confirm the agent retrieves relevant TSG content.
 
 ## Notes
 - The Dockerfile uses `uv` and creates a virtual environment at `/app/.venv`.
