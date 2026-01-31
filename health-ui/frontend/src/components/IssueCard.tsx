@@ -1,10 +1,11 @@
 import type { HealthIssue } from "../api";
 
-export function IssueCard({ issue, status, onClick, rootCause }: {
+export function IssueCard({ issue, status, onClick, rootCause, selected }: {
   issue: HealthIssue;
   status: { label: string; color: string; handingOff?: boolean };
   onClick: () => void;
   rootCause?: string | null;
+  selected?: boolean;
 }) {
   const sevClass = issue.severity === "Critical"
     ? "severity-critical"
@@ -23,7 +24,7 @@ export function IssueCard({ issue, status, onClick, rootCause }: {
     : "ℹ️";
 
   return (
-    <div className={`issue-card ${sevClass}`} onClick={onClick} title="Click to troubleshoot">
+    <div className={`issue-card ${sevClass} ${selected ? "selected" : ""}`} onClick={onClick} title="Click to troubleshoot">
       <div className="issue-card-header">
         <span>
           <span aria-hidden="true" style={{ marginRight: 6 }}>{severityIcon}</span>
@@ -35,6 +36,7 @@ export function IssueCard({ issue, status, onClick, rootCause }: {
             <span className="spinner spinner-inline" aria-label="Handing off" />
           )}
           <span>{status.label}</span>
+            {selected && (<span className="selected-dot" aria-label="Selected" />)}
         </span>
       </div>
       <div>Resource: {issue.resourceName} {issue.container ? `| Container: ${issue.container}` : ""}</div>

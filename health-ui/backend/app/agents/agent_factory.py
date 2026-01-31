@@ -77,7 +77,7 @@ class AgentFactory:
         if agent_type == "diagnostic":
             ai_search = self._make_ai_search_tool(
                 filter_expr="phase eq 'diagnosis'",
-                query_type=AzureAISearchQueryType.VECTOR_SIMPLE_HYBRID,
+                query_type=AzureAISearchQueryType.VECTOR_SEMANTIC_HYBRID,
                 top_k=5,
             )
             name = "sre_diagnostic_agent"
