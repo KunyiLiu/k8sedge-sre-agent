@@ -80,6 +80,11 @@ function App()
       return { label: "Handing off...", color: "#00bcd4", handingOff: true };
     }
 
+    // While a resume decision is being processed, show a transient "Resuming" state
+    if (convo?.awaitingDecisionInFlight && convo.awaitingApprovalEvent === "resume_available") {
+      return { label: "Resuming...", color: "#00bcd4", handingOff: true };
+    }
+
     // If a solution thread or parsed solution state exists, prefer showing a handoff/solution status
     if (t?.solThreadId || convo?.solutionState) {
       return { label: "Handoff", color: "#1976d2" };
@@ -221,7 +226,16 @@ function App()
   const handleResume = () => {
     if (!selectedIssueKey) return;
     wsClientsRef.current[selectedIssueKey]?.resume("yes");
-    setConversationByIssue(prev => ({ ...prev, [selectedIssueKey]: { ...(prev[selectedIssueKey] || {}), awaitingDecisionInFlight: true } }));
+    // Optimistically clear the resume question so the banner disappears
+    setConversationByIssue(prev => ({
+      ...prev,
+      [selectedIssueKey]: {
+        ...(prev[selectedIssueKey] || {}),
+        awaitingApprovalQuestion: null,
+        awaitingApprovalEvent: null,
+        awaitingDecisionInFlight: true,
+      },
+    }));
   };
   useEffect(() => {
     return () => {
@@ -306,6 +320,7 @@ function App()
                           issue={issue}
                           status={status}
                           rootCause={rootCause}
+                          selected={selectedIssueKey === key}
                           onClick={() => handleCardClick(issue)}
                         />
                       );

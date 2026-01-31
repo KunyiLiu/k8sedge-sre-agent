@@ -23,7 +23,7 @@ class MockK8sDiag:
         Mirrors `get_pod_diagnostics` in k8s_diag.py but returns deterministic mock data.
         Useful for testing CrashLoopBackOff and OOMKilled patterns without a real cluster.
         """
-        print(f"-----------get_pod_diagnostics(name={name}, namespace={namespace}, profile={self.profile})")
+        print(f"-----------Calling get_pod_diagnostics(name={name}, namespace={namespace}, profile={self.profile})")
         if self.profile == "imagepullbackoff":
             report = {
                 "phase": "ImagePullBackOff",
@@ -46,7 +46,7 @@ class MockK8sDiag:
 
     def get_pod_events(self, name: str, namespace: str, limit: int = 20) -> str:
         """Return recent events for a Pod (reason + message) as deterministic mock data."""
-        print(f"-----------get_pod_events(name={name}, namespace={namespace}, limit={limit}, profile={self.profile})")
+        print(f"-----------Calling get_pod_events(name={name}, namespace={namespace}, limit={limit}, profile={self.profile})")
         if self.profile == "imagepullbackoff":
             events = [
                 {
@@ -81,7 +81,7 @@ class MockK8sDiag:
 
     def get_image_pull_events(self, name: str, namespace: str) -> str:
         """Filter Pod events to those likely related to image pull failures (mock)."""
-        print(f"-----------get_image_pull_events(name={name}, namespace={namespace}, profile={self.profile})")
+        print(f"-----------Calling get_image_pull_events(name={name}, namespace={namespace}, profile={self.profile})")
         if self.profile == "imagepullbackoff":
             events = [
                 {
@@ -116,7 +116,7 @@ class MockK8sDiag:
 
     def get_service_account_details(self, name: str, namespace: str) -> str:
         """Return details of a ServiceAccount, including referenced imagePullSecrets (mock)."""
-        print(f"-----------get_service_account_details(name={name}, namespace={namespace}, profile={self.profile})")
+        print(f"-----------Calling get_service_account_details(name={name}, namespace={namespace}, profile={self.profile})")
         if self.profile == "imagepullbackoff":
             info = {
                 "name": name,
@@ -133,7 +133,7 @@ class MockK8sDiag:
 
     def get_secret_exists(self, name: str, namespace: str) -> str:
         """Return whether a Secret exists in the namespace (mock always True)."""
-        print(f"-----------get_secret_exists(name={name}, namespace={namespace}, profile={self.profile})")
+        print(f"-----------Calling get_secret_exists(name={name}, namespace={namespace}, profile={self.profile})")
         if self.profile == "imagepullbackoff":
             return json.dumps({"exists": False})
         return json.dumps({"exists": True})
@@ -144,7 +144,7 @@ class MockK8sDiag:
         Mirrors `get_workload_yaml` for resource review; structure matches Kubernetes objects
         commonly used in diagnostics (replicas, selectors, containers, resources, env).
         """
-        print(f"-----------get_workload_yaml(kind={kind}, name={name}, namespace={namespace}, profile={self.profile})")
+        print(f"-----------Calling get_workload_yaml(kind={kind}, name={name}, namespace={namespace}, profile={self.profile})")
         image = "mock.registry.local/mock:latest"
         if self.profile == "imagepullbackoff":
             image = "private.registry.local/protected/app:latest"
@@ -177,7 +177,7 @@ class MockK8sDiag:
 
     def get_pod_top_metrics(self, name: str, namespace: str) -> str:
         """Attempt to fetch live pod metrics (mock), shaped like metrics.k8s.io output."""
-        print(f"-----------get_pod_top_metrics(name={name}, namespace={namespace}, profile={self.profile})")
+        print(f"-----------Calling get_pod_top_metrics(name={name}, namespace={namespace}, profile={self.profile})")
         if self.profile == "imagepullbackoff":
             metrics = {
                 "metadata": {"name": name, "namespace": namespace},
@@ -198,7 +198,7 @@ class MockK8sDiag:
 
     def get_pod_scheduling_events(self, name: str, namespace: str, limit: int = 20) -> str:
         """Return events related to scheduling (e.g., FailedScheduling) for a Pod (mock)."""
-        print(f"-----------get_pod_scheduling_events(name={name}, namespace={namespace}, limit={limit}, profile={self.profile})")
+        print(f"-----------Calling get_pod_scheduling_events(name={name}, namespace={namespace}, limit={limit}, profile={self.profile})")
         sched = [
             {
                 "reason": "FailedScheduling",
@@ -210,7 +210,7 @@ class MockK8sDiag:
 
     def get_nodes_overview(self) -> str:
         """List nodes with allocatable CPU/memory and taints for scheduling analysis (mock)."""
-        print(f"-----------get_nodes_overview(profile={self.profile})")
+        print(f"-----------Calling get_nodes_overview(profile={self.profile})")
         nodes = [
             {
                 "name": "node-1",
@@ -227,7 +227,7 @@ class MockK8sDiag:
 
     def get_pvc_details(self, name: str, namespace: str) -> str:
         """Return status and bound PV for a PersistentVolumeClaim used by a Pod (mock)."""
-        print(f"-----------get_pvc_details(name={name}, namespace={namespace}, profile={self.profile})")
+        print(f"-----------Calling get_pvc_details(name={name}, namespace={namespace}, profile={self.profile})")
         info = {
             "name": name,
             "status": "Bound",
@@ -240,7 +240,7 @@ class MockK8sDiag:
 
     def get_namespace_resource_quota(self, namespace: str) -> str:
         """Return ResourceQuota objects for a namespace to detect quota-related Pending states (mock)."""
-        print(f"-----------get_namespace_resource_quota(namespace={namespace}, profile={self.profile})")
+        print(f"-----------Calling get_namespace_resource_quota(namespace={namespace}, profile={self.profile})")
         data = [
             {
                 "metadata": {"name": "compute-quota", "namespace": namespace},
@@ -252,7 +252,7 @@ class MockK8sDiag:
 
     def get_namespace_limit_ranges(self, namespace: str) -> str:
         """Return LimitRange objects to understand default requests/limits constraints (mock)."""
-        print(f"-----------get_namespace_limit_ranges(namespace={namespace}, profile={self.profile})")
+        print(f"-----------Calling get_namespace_limit_ranges(namespace={namespace}, profile={self.profile})")
         data = [
             {
                 "metadata": {"name": "default-limits", "namespace": namespace},

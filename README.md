@@ -1,7 +1,10 @@
 # K8s SRE Agent
 AI-Powered Kubernetes Troubleshooting Agent (MVP). An AI-assisted SRE troubleshooting system that detects unhealthy Kubernetes workloads using Prometheus metrics and guides users through human-in-the-loop, ReAct-style diagnostics powered by Azure AI Foundry.
 
-![Project Architecture](project_architecture.png)
+## TL;DR Demo (Intro)
+<video src="K8s_SRE_Agent_Intro.mp4" controls width="720"></video>
+
+![Project Architecture](docs/project_architecture.png)
 
 ## Project Overview
 
@@ -97,6 +100,9 @@ This project uses Azure AI Search to index Kubernetes Troubleshooting Guides (TS
 - Configure backend: Set `AZURE_SEARCH_ENDPOINT`, `AZURE_SEARCH_INDEX`, `AZURE_SEARCH_API_KEY`, and `AZURE_AI_PROJECT_ENDPOINT` in your `.env`.
 
 Details and a ready-to-use ingestion snippet are documented in [health-ui/backend/README.md](health-ui/backend/README.md).
+
+## Demo Video
+<video src="K8s_SRE_Agent_Demo_Audio.mp4" controls width="720"></video>
 
 ## Evaluation
 

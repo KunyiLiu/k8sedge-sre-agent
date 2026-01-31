@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import time
 from typing import Optional, Literal, Any
 from dotenv import load_dotenv
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -118,12 +119,32 @@ async def _flush_diag_stream(
     current_input: str,
     issue_id: str,
 ):
+    start_time = time.monotonic()
+    first_token_latency: float | None = None
     buffer = ""
     try:
         async for update in diag_agent.run_stream(current_input, thread=diag_thread):
             if update.text is None:
                 continue
             
+            if first_token_latency is None:
+                first_token_latency = time.monotonic() - start_time
+                logger.debug(
+                    f"Diagnostic stream first token latency: {first_token_latency:.3f}s "
+                    f"[issueId={issue_id}, threadId={getattr(diag_thread, 'service_thread_id', None)}]"
+                )
+                # Update ISSUE_THREAD_MAP immediately on first token
+                try:
+                    if issue_id not in ISSUE_THREAD_MAP:
+                        ISSUE_THREAD_MAP[issue_id] = {}
+                    ISSUE_THREAD_MAP[issue_id]["diag_thread_id"] = getattr(diag_thread, "service_thread_id", None)
+                    logger.info(
+                        f"---UPDATED ISSUE_THREAD_MAP on first token: {ISSUE_THREAD_MAP} "
+                        f"for issueId={issue_id} and diag_thread_id={getattr(diag_thread, 'service_thread_id', None)}---"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to update ISSUE_THREAD_MAP on first token: {e}")
+
             buffer += update.text
             decoder = json.JSONDecoder()
             while True:
@@ -132,7 +153,7 @@ async def _flush_diag_stream(
                     break
                 try:
                     obj, end = decoder.raw_decode(buffer[start:])
-                    logger.debug(f"Parsed diagnostic object: {obj}")
+                    # logger.debug(f"Parsed diagnostic object: {obj}")
                     state_flush = AgentState.model_validate(obj)
                     payload = WebSocketPayload(
                         event="diagnostic",
@@ -149,14 +170,28 @@ async def _flush_diag_stream(
                     logger.warning(f"Validation error while parsing stream: {e}")
                     buffer = buffer[start + 1:]
     finally:
-        # Preserve any existing solution thread id for this issue, if present
+        total_stream_time = time.monotonic() - start_time
+        if first_token_latency is not None:
+            logger.debug(
+                f"Diagnostic stream completed in {total_stream_time:.3f}s "
+                f"(first token {first_token_latency:.3f}s) "
+                f"[issueId={issue_id}, threadId={getattr(diag_thread, 'service_thread_id', None)}]"
+            )
+        else:
+            logger.debug(
+                f"Diagnostic stream produced no tokens; duration {total_stream_time:.3f}s "
+                f"[issueId={issue_id}, threadId={getattr(diag_thread, 'service_thread_id', None)}]"
+            )
+        # Ensure diag_thread_id is persisted; do not overwrite if already set
         if diag_thread:
-            # Update only the diag_thread_id key to avoid overwriting other stored keys
             if issue_id not in ISSUE_THREAD_MAP:
                 ISSUE_THREAD_MAP[issue_id] = {}
-            ISSUE_THREAD_MAP[issue_id]["diag_thread_id"] = diag_thread.service_thread_id
-
-            logger.info(f"---UPDATED ISSUE_THREAD_MAP: {ISSUE_THREAD_MAP} for issueId={issue_id} and diag_thread_id={diag_thread.service_thread_id}---")
+            if not ISSUE_THREAD_MAP[issue_id].get("diag_thread_id"):
+                ISSUE_THREAD_MAP[issue_id]["diag_thread_id"] = diag_thread.service_thread_id
+                logger.info(
+                    f"---UPDATED ISSUE_THREAD_MAP: {ISSUE_THREAD_MAP} "
+                    f"for issueId={issue_id} and diag_thread_id={diag_thread.service_thread_id}---"
+                )
 
 
 async def _ask_intervention(
@@ -207,9 +242,36 @@ async def _run_solution_and_emit(
     prompt = (
         f"Provide solution or escalation email for the issue {issue.issueType} for {issue.resourceType} "
         f"[resourceName={issue.resourceName}, container={issue.container}, namespace={issue.namespace}]. "
-        f"Diagnostic root cause: [{state.root_cause}]. Other evidence: [{state.thought}]. It is recommended to escalate."
+        f"Diagnostic root cause: [{state.root_cause}]. Other evidence: [{state.thought}]. "
+        f"If Application crash, you need to create ESCALATE EMAIL!"
     )
-    result = await sol_agent.run(prompt, thread=sol_thread)
+    # Stream solution agent to capture first/last token latency
+    sol_start = time.monotonic()
+    sol_first_token_latency: float | None = None
+    sol_buffer = ""
+    try:
+        async for update in sol_agent.run_stream(prompt, thread=sol_thread):
+            if update.text is None:
+                continue
+            if sol_first_token_latency is None:
+                sol_first_token_latency = time.monotonic() - sol_start
+                logger.debug(
+                    f"Solution stream first token latency: {sol_first_token_latency:.3f}s "
+                    f"[issueId={issue_id}, threadId={getattr(sol_thread, 'service_thread_id', None)}]"
+                )
+            sol_buffer += update.text
+    finally:
+        sol_total = time.monotonic() - sol_start
+        if sol_first_token_latency is not None:
+            logger.debug(
+                f"Solution stream completed in {sol_total:.3f}s (first token {sol_first_token_latency:.3f}s) "
+                f"[issueId={issue_id}, threadId={getattr(sol_thread, 'service_thread_id', None)}]"
+            )
+        else:
+            logger.debug(
+                f"Solution stream produced no tokens; duration {sol_total:.3f}s "
+                f"[issueId={issue_id}, threadId={getattr(sol_thread, 'service_thread_id', None)}]"
+            )
 
     sol_thread_id = getattr(sol_thread, "service_thread_id", None)
     try:
@@ -223,7 +285,7 @@ async def _run_solution_and_emit(
     # Attempt to parse solution result into SolutionResponse; fallback to detail
     solution_state = None
     try:
-        data = json.loads(getattr(result, "text", ""))
+        data = json.loads(sol_buffer or "")
         solution_state = SolutionResponse.model_validate(data)
     except Exception as e:
         logger.warning(f"Failed to parse solution response into structured JSON: {e}")
@@ -288,7 +350,11 @@ async def workflow_ws(ws: WebSocket):
         else:
             tools = create_mock_tools(profile="crashloop")
         factory = AgentFactory(project_client=project_client, agents_client=agents_client, credential=credential, tools=tools)
+        # Measure connection time for diagnostic agent creation
+        connect_start = time.monotonic()
         diag_agent = await factory.create_diagnostic_agent()
+        connect_duration = time.monotonic() - connect_start
+        logger.debug(f"Connected to diagnostic agent in {connect_duration:.3f}s")
 
         start_input = (
             f"Investigate the issue {issue.issueType} for {issue.resourceType} "
@@ -302,8 +368,6 @@ async def workflow_ws(ws: WebSocket):
         existing_sol_id = mapping.get("sol_thread_id")
         diag_thread = None
         current_input = start_input
-
-        logger.info(f"---ISSUE_THREAD_MAP: {ISSUE_THREAD_MAP} for issueId={issue_id}---")
 
         if existing_diag_id:
             try:

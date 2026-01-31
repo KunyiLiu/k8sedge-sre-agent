@@ -78,15 +78,24 @@ export function SolutionCard({ state }: { state?: any | null }) {
                 type="button"
                 className="btn btn-ghost open-email-button"
                 onClick={() => {
-                  const body: string = escalation.email_draft || escalation.body || "";
-                  if (!body) return;
+                  const rawBody: string = escalation.email_draft || escalation.body || "";
+                  if (!rawBody) return;
+
+                  // Extract subject from the body if present: line starting with "Subject: ..."
+                  const subjectMatch = rawBody.match(/^\s*Subject:\s*(.+)$/m);
+                  const extractedSubject = subjectMatch ? subjectMatch[1].trim() : undefined;
+                  // Remove the subject line from the body for the email body
+                  const bodyWithoutSubject = rawBody.replace(/^\s*Subject:.*\r?\n/, "");
+
+                  // Fallback to reason/severity only if no subject is embedded in body
                   const reason: string = escalation.reason || "K8s incident escalation";
                   const severity: string | undefined = escalation.severity;
-                  const subjectBase = severity
-                    ? `[${severity.toUpperCase()}] ${reason}`
-                    : reason;
+                  const subjectBase = extractedSubject
+                    ? extractedSubject
+                    : (severity ? `[${severity.toUpperCase()}] ${reason}` : reason);
+
                   const subject = encodeURIComponent(subjectBase);
-                  const encodedBody = encodeURIComponent(body);
+                  const encodedBody = encodeURIComponent(bodyWithoutSubject);
                   const mailto = `mailto:?subject=${subject}&body=${encodedBody}`;
                   try {
                     window.location.href = mailto;
