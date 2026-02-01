@@ -1,11 +1,23 @@
 from typing import Optional
 import json
+import logging
 
 try:
     from kubernetes import client, config
 except Exception:  # pragma: no cover
     client = None  # type: ignore
     config = None  # type: ignore
+
+logger = logging.getLogger(__name__)
+
+_v1_api = None
+
+def get_v1_api():
+    global _v1_api
+    if _v1_api is None:
+        _load_kube_config()
+        _v1_api = client.CoreV1Api()
+    return _v1_api
 
 
 def _load_kube_config() -> None:
@@ -27,7 +39,9 @@ def get_pod_diagnostics(name: str, namespace: str) -> str:
     if client is None:
         return "Tool Error: kubernetes client not installed"
     _load_kube_config()
-    v1 = client.CoreV1Api()
+
+    logger.debug(f"-----------Calling get_pod_diagnostics: name={name}, namespace={namespace}")
+    v1 = get_v1_api()
     try:
         pod = v1.read_namespaced_pod(name=name, namespace=namespace)
         cstatus = (pod.status.container_statuses or [None])[0]
@@ -68,7 +82,9 @@ def get_pod_events(name: str, namespace: str, limit: int = 20) -> str:
     if client is None:
         return "Tool Error: kubernetes client not installed"
     _load_kube_config()
-    v1 = client.CoreV1Api()
+
+    logger.debug(f"-----------Calling get_pod_events: name={name}, namespace={namespace}, limit={limit}")
+    v1 = get_v1_api()
     try:
         # Field selector for involvedObject.name can retrieve Pod events
         field_selector = f"involvedObject.kind=Pod,involvedObject.name={name}"
@@ -90,6 +106,8 @@ def get_pod_events(name: str, namespace: str, limit: int = 20) -> str:
 
 def get_image_pull_events(name: str, namespace: str) -> str:
     """Filter Pod events to those likely related to image pull failures."""
+    
+    logger.debug(f"-----------Calling get_image_pull_events: name={name}, namespace={namespace}")
     data = get_pod_events(name, namespace)
     try:
         events = json.loads(data)
@@ -112,7 +130,9 @@ def get_service_account_details(name: str, namespace: str) -> str:
     if client is None:
         return "Tool Error: kubernetes client not installed"
     _load_kube_config()
-    v1 = client.CoreV1Api()
+
+    logger.debug(f"-----------Calling get_service_account_details: name={name}, namespace={namespace}")
+    v1 = get_v1_api()
     try:
         sa = v1.read_namespaced_service_account(name=name, namespace=namespace)
         info = {
@@ -126,11 +146,12 @@ def get_service_account_details(name: str, namespace: str) -> str:
 
 
 def get_secret_exists(name: str, namespace: str) -> str:
+    logger.debug(f"-----------Calling get_secret_exists: name={name}, namespace={namespace}")
     """Return whether a Secret exists in the namespace."""
     if client is None:
         return "Tool Error: kubernetes client not installed"
     _load_kube_config()
-    v1 = client.CoreV1Api()
+    v1 = get_v1_api()
     try:
         v1.read_namespaced_secret(name=name, namespace=namespace)
         return json.dumps({"exists": True})
@@ -139,31 +160,51 @@ def get_secret_exists(name: str, namespace: str) -> str:
 
 
 def get_workload_yaml(kind: str, name: str, namespace: str) -> str:
-    """Return the full YAML (as JSON string) of a Deployment/StatefulSet for resource review."""
+    """Return a cleaned JSON representation of a Pod, Deployment, or StatefulSet."""
     if client is None:
         return "Tool Error: kubernetes client not installed"
     _load_kube_config()
-    apps = client.AppsV1Api()
+
+    logger.debug(f"-----------Calling get_workload_yaml: kind={kind}, name={name}, namespace={namespace}")
+    
+    k = kind.lower()
     try:
-        obj = None
-        k = kind.lower()
-        if k == "deployment":
-            obj = apps.read_namespaced_deployment(name=name, namespace=namespace)
+        if k == "pod":
+            api = client.CoreV1Api()
+            obj = api.read_namespaced_pod(name=name, namespace=namespace)
+        elif k == "deployment":
+            api = client.AppsV1Api()
+            obj = api.read_namespaced_deployment(name=name, namespace=namespace)
         elif k == "statefulset":
-            obj = apps.read_namespaced_stateful_set(name=name, namespace=namespace)
+            api = client.AppsV1Api()
+            obj = api.read_namespaced_stateful_set(name=name, namespace=namespace)
         else:
-            return f"Unsupported kind: {kind}. Use 'Deployment' or 'StatefulSet'."
-        # Rely on model to_dict for serialization
-        return json.dumps(obj.to_dict(), ensure_ascii=False, indent=2)
+            return f"Unsupported kind: {kind}. Use 'Pod', 'Deployment', or 'StatefulSet'."
+
+        # Convert to dictionary
+        data = obj.to_dict()
+
+        # --- Cleaning Logic ---
+        # managedFields can be 50% of the total YAML size—useless for diagnostics
+        if "metadata" in data:
+            data["metadata"].pop("managedFields", None)
+            data["metadata"].pop("ownerReferences", None) # Optional: remove if not needed
+            
+        # If the agent is reviewing 'workload', they usually care about spec, not status
+        # (Status info is already covered by your get_pod_diagnostics function)
+        data.pop("status", None)
+
+        return json.dumps(data, ensure_ascii=False, indent=2, default=str)
     except Exception as e:
         return f"Tool Error: {str(e)}"
-
 
 def get_pod_top_metrics(name: str, namespace: str) -> str:
     """Attempt to fetch live pod metrics from metrics.k8s.io; falls back with guidance if unavailable."""
     if client is None:
         return "Tool Error: kubernetes client not installed"
     _load_kube_config()
+
+    logger.debug(f"-----------Calling get_pod_top_metrics: name={name}, namespace={namespace}")
     try:
         co = client.CustomObjectsApi()
         obj = co.get_namespaced_custom_object(
@@ -182,7 +223,9 @@ def get_pod_scheduling_events(name: str, namespace: str, limit: int = 20) -> str
     if client is None:
         return "Tool Error: kubernetes client not installed"
     _load_kube_config()
-    v1 = client.CoreV1Api()
+
+    logger.debug(f"-----------Calling get_pod_scheduling_events: name={name}, namespace={namespace}, limit={limit}")
+    v1 = get_v1_api()
     try:
         field_selector = f"involvedObject.kind=Pod,involvedObject.name={name}"
         ev = v1.list_namespaced_event(namespace=namespace, field_selector=field_selector)
@@ -206,7 +249,9 @@ def get_nodes_overview() -> str:
     if client is None:
         return "Tool Error: kubernetes client not installed"
     _load_kube_config()
-    v1 = client.CoreV1Api()
+
+    logger.debug(f"-----------Calling get_nodes_overview")
+    v1 = get_v1_api()
     try:
         nodes = v1.list_node()
         data = []
@@ -231,7 +276,9 @@ def get_pvc_details(name: str, namespace: str) -> str:
     if client is None:
         return "Tool Error: kubernetes client not installed"
     _load_kube_config()
-    v1 = client.CoreV1Api()
+
+    logger.debug(f"-----------Calling get_pvc_details: name={name}, namespace={namespace}")
+    v1 = get_v1_api()
     try:
         pvc = v1.read_namespaced_persistent_volume_claim(name=name, namespace=namespace)
         info = {
@@ -252,7 +299,9 @@ def get_namespace_resource_quota(namespace: str) -> str:
     if client is None:
         return "Tool Error: kubernetes client not installed"
     _load_kube_config()
-    v1 = client.CoreV1Api()
+
+    logger.debug(f"-----------Calling get_namespace_resource_quota: namespace={namespace}")
+    v1 = get_v1_api()
     try:
         rq = v1.list_namespaced_resource_quota(namespace=namespace)
         return json.dumps([r.to_dict() for r in rq.items], ensure_ascii=False, indent=2)
@@ -265,9 +314,29 @@ def get_namespace_limit_ranges(namespace: str) -> str:
     if client is None:
         return "Tool Error: kubernetes client not installed"
     _load_kube_config()
-    v1 = client.CoreV1Api()
+
+    logger.debug(f"-----------Calling get_namespace_limit_ranges: namespace={namespace}")
+    v1 = get_v1_api()
     try:
         lr = v1.list_namespaced_limit_range(namespace=namespace)
         return json.dumps([l.to_dict() for l in lr.items], ensure_ascii=False, indent=2)
     except Exception as e:
         return f"Tool Error: {str(e)}"
+
+
+def create_tools():
+    """Return a list of all diagnostic tool callables for agent registration."""
+    return [
+        get_pod_diagnostics,
+        get_pod_events,
+        get_image_pull_events,
+        get_service_account_details,
+        get_secret_exists,
+        get_workload_yaml,
+        get_pod_top_metrics,
+        get_pod_scheduling_events,
+        get_nodes_overview,
+        get_pvc_details,
+        get_namespace_resource_quota,
+        get_namespace_limit_ranges,
+    ]

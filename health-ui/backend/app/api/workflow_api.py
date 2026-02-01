@@ -12,6 +12,7 @@ from azure.ai.agents.aio import AgentsClient
 from azure.ai.agents.models import ListSortOrder
 from app.agents.agent_factory import AgentFactory
 from agent_framework import ChatAgent
+from app.skills.k8s_diag import create_tools
 from app.skills.mock_k8s_diag import create_mock_tools
 
 load_dotenv()
@@ -139,8 +140,8 @@ async def _flush_diag_stream(
                         ISSUE_THREAD_MAP[issue_id] = {}
                     ISSUE_THREAD_MAP[issue_id]["diag_thread_id"] = getattr(diag_thread, "service_thread_id", None)
                     logger.info(
-                        f"---UPDATED ISSUE_THREAD_MAP on first token: {ISSUE_THREAD_MAP} "
-                        f"for issueId={issue_id} and diag_thread_id={getattr(diag_thread, 'service_thread_id', None)}---"
+                        f"UPDATED ISSUE_THREAD_MAP on first token: {ISSUE_THREAD_MAP} "
+                        f"for issueId={issue_id} and diag_thread_id={getattr(diag_thread, 'service_thread_id', None)}"
                     )
                 except Exception as e:
                     logger.warning(f"Failed to update ISSUE_THREAD_MAP on first token: {e}")
@@ -327,14 +328,25 @@ async def _run_solution_and_emit(
         logger.warning(f"WebSocket send failed for complete: {e}")
         return
 
+def get_skills(issue_type: str, is_mock: bool):
+    if is_mock:
+        if issue_type == "ImagePullBackOff":
+            return create_mock_tools(profile="imagepullbackoff")
+        else:
+            return create_mock_tools(profile="crashloop")
+    else:
+        return create_tools()
+
 @router.websocket("/workflow/ws")
-async def workflow_ws(ws: WebSocket):
+async def workflow_ws(
+    ws: WebSocket,
+    is_mock: bool = False  # FastAPI injects this from the query string
+):
     await ws.accept()
     project_client: Optional[AIProjectClient] = None
     agents_client: Optional[AgentsClient] = None
     credential: Optional[DefaultAzureCredential] = None
     diag_agent: Optional[ChatAgent] = None
-    
     try:
         init_msg = await ws.receive_json()
         if init_msg.get("type") != "start" or not init_msg.get("issue"):
@@ -345,10 +357,7 @@ async def workflow_ws(ws: WebSocket):
         issue = HealthIssue(**init_msg["issue"])
         project_client, agents_client, credential = await _get_clients()
 
-        if issue.issueType == "ImagePullBackOff":
-            tools = create_mock_tools(profile="imagepullbackoff")
-        else:
-            tools = create_mock_tools(profile="crashloop")
+        tools = get_skills(issue.issueType, is_mock)
         factory = AgentFactory(project_client=project_client, agents_client=agents_client, credential=credential, tools=tools)
         # Measure connection time for diagnostic agent creation
         connect_start = time.monotonic()

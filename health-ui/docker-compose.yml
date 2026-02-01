@@ -1,22 +1,33 @@
-services:           # Defines the "pieces" of your app
-  sreagent-backend:          # The name of the service (also its DNS name!)
-    build: ./backend # Where to find the Dockerfile to build this
+services:
+  sreagent-backend:
+    build: ./backend
     image: kunyiliu1022/sreagent-backend:latest
     ports:
-      - "8000:8000" # Maps Mac port 8000 -> Container port 8000
-    environment: # load environment variables from .env file
-      - AZURE_CLIENT_ID
-      - AZURE_TENANT_ID
-      - AZURE_CLIENT_SECRET
-      - PROMETHEUS_QUERY_ENDPOINT
-      - AZURE_AI_PROJECT_ENDPOINT
-      - AZURE_SEARCH_INDEX_CONNECTION_ID
-      - AZURE_SEARCH_INDEX_NAME
+      - "8000:8000"
+    volumes:
+      # Mount the NEW specialized config instead of the default one
+      - ~/.kube/config-docker:/root/.kube/config:ro
+    environment:
+      - AZURE_CLIENT_ID=${AZURE_CLIENT_ID}
+      - AZURE_TENANT_ID=${AZURE_TENANT_ID}
+      - AZURE_CLIENT_SECRET=${AZURE_CLIENT_SECRET}
+      - PROMETHEUS_QUERY_ENDPOINT=${PROMETHEUS_QUERY_ENDPOINT}
+      - AZURE_AI_PROJECT_ENDPOINT=${AZURE_AI_PROJECT_ENDPOINT}
+      - AZURE_SEARCH_INDEX_CONNECTION_ID=${AZURE_SEARCH_INDEX_CONNECTION_ID}
+      - AZURE_SEARCH_INDEX_NAME=${AZURE_SEARCH_INDEX_NAME}
+      # kubelogin specifically looks for these if using Service Principal:
+      - AAD_SERVICE_PRINCIPAL_CLIENT_ID=${AZURE_CLIENT_ID}
+      - AAD_SERVICE_PRINCIPAL_CLIENT_SECRET=${AZURE_CLIENT_SECRET}
+      # Tell the kubernetes python client where to find the config
+      - KUBECONFIG=/root/.kube/config
+    # Optional: Ensure the container runs as root to access /root/.kube
+    # If your Dockerfile uses a non-root user, map to their home dir instead.
+    user: "root" 
 
   sreagent-frontend:
     build: ./frontend
     image: kunyiliu1022/sreagent-frontend:latest
     ports:
-      - "8080:80"   # Maps Mac port 8080 -> Nginx port 80
-    depends_on:     # Ensures the backend starts before the frontend
+      - "8080:80"
+    depends_on:
       - sreagent-backend
