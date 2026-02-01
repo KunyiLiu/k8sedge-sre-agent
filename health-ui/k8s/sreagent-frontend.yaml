@@ -16,6 +16,7 @@ spec:
       containers:
       - name: sreagent-frontend
         image: kunyiliu1022/sreagent-frontend:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 80
 ---

@@ -29,12 +29,17 @@ spec:
       containers:
       - name: sreagent-backend
         image: kunyiliu1022/sreagent-backend:latest
+        imagePullPolicy: Always
         ports:
         - containerPort: 8000
         # It is good practice to explicitly pass the Workspace ID as an env var
         env:
         - name: PROMETHEUS_WORKSPACE_ID
           value: "defaultazuremonitorworkspace-wus2"
+        # 2. Pull all the "Sensitive" variables from your Secret
+        envFrom:
+        - secretRef:
+            name: backend-secrets
 ---
 apiVersion: v1
 kind: Service

@@ -12,7 +12,7 @@ from azure.ai.agents.aio import AgentsClient
 from azure.ai.agents.models import ListSortOrder
 from app.agents.agent_factory import AgentFactory
 from agent_framework import ChatAgent
-from skills.mock_k8s_diag import create_mock_tools
+from app.skills.mock_k8s_diag import create_mock_tools
 
 load_dotenv()
 

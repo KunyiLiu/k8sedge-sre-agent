@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sreagent-ingress
+  namespace: sreagent
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod" # Tells cert-manager to handle SSL
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"   # Forces HTTP to HTTPS
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - sreagent-frontend-dev.westus2.cloudapp.azure.com
+    secretName: sreagent-tls-secret
+  rules:
+  - host: sreagent-frontend-dev.westus2.cloudapp.azure.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: sreagent-frontend-external
+            port:
+              number: 80
+

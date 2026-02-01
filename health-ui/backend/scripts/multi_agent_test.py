@@ -1,54 +1,53 @@
 import os
 import asyncio
-import json
+import sys
 from pathlib import Path
-from typing import List, Dict, Optional, Literal
-from pydantic import BaseModel
 from dotenv import load_dotenv
-
-# Azure AI Agent Framework
 from azure.identity.aio import DefaultAzureCredential
 from azure.ai.projects.aio import AIProjectClient
 from azure.ai.agents.aio import AgentsClient
-from app.agents.agent_factory import AgentFactory
-from app.models import AgentState
 
-# 1. SETUP
+# Ensure backend directory is on sys.path so 'app' and 'skills' packages can be imported when running this script directly.
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from app.agents.agent_factory import AgentFactory
+from app.models import HealthIssue, ResourceType, AgentState
+from app.skills.mock_k8s_diag import create_mock_tools
+
+
+# Setup
 load_dotenv()
 
-# --- 2. STRUCTURED OUTPUT SCHEMA ---
-# Using AgentState from app.models to align with backend agents
 
-# --- 3. TOOLS ---
-def get_pod_details(pod_name: str) -> str:
-    """Simulated SRE Tool."""
-    print(f"--- [Skill] Fetching data for {pod_name} ---")
-    return "LOGS: 'java.lang.OutOfMemoryError'. Events: 'Back-off restarting failed container'."
+def format_duration(seconds: int) -> str:
+    """Simple duration formatter: returns "HHh MMm" for a given seconds value."""
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    return f"{hours:02d}h {minutes:02d}m"
 
-# --- 4. THREAD & REPORTING UTILITIES ---
-async def get_clean_history(agents_client: AgentsClient, thread_id: str) -> List[Dict]:
+
+async def get_clean_history(agents_client: AgentsClient, thread_id: str):
     """Fetches final messages from Azure for auditing."""
     history = []
     try:
-        # Use AgentsClient.messages.list() to get messages
         async for message in agents_client.messages.list(thread_id=thread_id):
             text = ""
-            if getattr(message, 'text_messages', None):
-                texts = [tm.text.value for tm in message.text_messages if hasattr(tm, 'text')]
-                text = texts[-1] if texts else ''
+            if getattr(message, "text_messages", None):
+                texts = [tm.text.value for tm in message.text_messages if hasattr(tm, "text")]
+                text = texts[-1] if texts else ""
             else:
-                text = getattr(message, 'text', '') or ''
-            
+                text = getattr(message, "text", "") or ""
+
             history.append({"role": message.role, "text": text})
-        
-        # Reverse to get chronological order
         history.reverse()
     except Exception as e:
         print(f"Error fetching history: {e}")
-    
     return history
 
-def human_gatekeeper(thought: str):
+
+def human_gatekeeper(thought: str) -> str:
     """Console UI for Human-in-the-Loop."""
     print(f"\n🤖 [AGENT THOUGHT]: {thought}")
     print("-" * 30)
@@ -56,124 +55,110 @@ def human_gatekeeper(thought: str):
     choice = input("Select (1-4): ").strip()
     return choice
 
-# --- 5. THE ORCHESTRATOR ---
+
 async def main():
+    # Environment
     endpoint = os.getenv("AZURE_AI_PROJECT_ENDPOINT")
     if not endpoint:
         raise ValueError("AZURE_AI_PROJECT_ENDPOINT not set in environment variables.")
 
     credential = DefaultAzureCredential()
-    
+
     try:
         async with AIProjectClient(endpoint=endpoint, credential=credential) as project_client:
-        
-            # Create AgentsClient for message operations
-            # Extract connection info from project_client
             agents_client = AgentsClient(endpoint=endpoint, credential=credential)
-            try:
-                # Initialize agents via AgentFactory (uses same deployment/config as backend)
-                factory = AgentFactory(
-                    project_client=project_client,
-                    agents_client=agents_client,
-                    credential=credential,
-                    tools=[get_pod_details],
-                    model_deployment_name="gpt-4.1-mini",
-                )
 
-                diag_agent = await factory.create_diagnostic_agent()
-                sol_agent = await factory.create_solution_agent()
+            # Mock tools profile to simulate CrashLoopBackOff
+            tools = create_mock_tools(profile="crashloop")
 
-                # State Variables
-                current_input = "Investigate why pod 'auth-service-v2' is crashing."
-                final_diagnosis = None
-                step_count = 0
-                MAX_STEPS = 4
-                
-                # Thread Management - create thread using the agents that have the proper client
-                diag_thread = diag_agent.get_new_thread()
+            # Build factory and agents
+            factory = AgentFactory(
+                project_client=project_client,
+                agents_client=agents_client,
+                credential=credential,
+                tools=tools,
+            )
+            diag_agent = await factory.create_diagnostic_agent()
 
-                print(f"--- Workflow Started --- for thread {diag_thread.service_thread_id}")
+            # Prepare HealthIssue input
+            issue = HealthIssue(
+                issueType="CrashLoopBackOff",
+                severity="High",
+                resourceType=ResourceType.Pod,
+                namespace="default",
+                resourceName="web-0",
+                container="web",
+                unhealthySince=format_duration(3600),
+                unhealthyTimespan=3600,
+                message="Container is in CrashLoopBackOff state."
+            )
+            start_input = (
+                f"Investigate the issue {issue.issueType} for {issue.resourceType} [resourceName={issue.resourceName}, container={issue.container}, namespace={issue.namespace}]."
+            )
 
-                while not final_diagnosis:
-                    step_count += 1
-                    if step_count > MAX_STEPS:
-                        print("⚠️ Step limit reached.")
-                        break
+            # Run diagnostic agent in a loop with optional human approval
+            diag_thread = diag_agent.get_new_thread()
+            current_input = start_input
+            step_count = 0
+            max_steps = 12
+            while step_count < max_steps:
+                step_count += 1
+                async for update in diag_agent.run_stream(current_input, thread=diag_thread):
+                    print(update, end="")
 
-                    # --- LIVE EXECUTION ---
-                    response_text = ""
-                    result = await diag_agent.run(current_input, thread=diag_thread)
-                    print(f"ID now: {diag_thread.service_thread_id}")
+                # Parse last message into AgentState
+                history = await get_clean_history(agents_client, diag_thread.service_thread_id or "")
+                last_text = history[-1]["text"] if history else ""
+                state = None
+                try:
+                    state = AgentState.model_validate_json(last_text)
+                    print("\nParsed state:", state.model_dump())
+                except Exception:
+                    print(f"\nNo structured AgentState JSON found in last message: {last_text}")
 
-                    msgs = getattr(result, "messages", [])
-                    if msgs:
-                        response_text = msgs[-1].text
-                        print(f"\n[Diagnostic Agent]: {response_text[:200]}...")
+                # Break if conversation too long (fallback)
+                if len(history) >= 50:
+                    print("\nStopping: conversation history reached 50 messages.")
+                    break
 
-                    # --- STATE TRANSITION LOGIC ---
-                    try:
-                        state = AgentState.model_validate_json(response_text)
-                        print(f"\n[Step {step_count}] Reasoning: {state.thought}")
-                    except Exception as e:
-                        print(f"JSON Parse Fail: {e}")
-                        continue
+                # Control flow based on state
+                if not state:
+                    current_input = "Continue."
+                    continue
 
-                    if state.next_action == "handoff_to_solution_agent":
-                        final_diagnosis = state.root_cause
-                    
-                    elif state.next_action == "await_user_approval":
-                        choice = human_gatekeeper(state.thought)
-                        if choice == "1":
-                            current_input = f"Action {state.action} APPROVED. Proceed."
-                        elif choice == "2":
-                            hint = input("Enter denial reason or hint: ")
-                            current_input = f"Action DENIED. Reason/Hint: {hint}"
-                        elif choice == "3":
-                            final_diagnosis = f"Manual Handoff: {state.thought}"
-                        else: 
-                            break
-
-                    elif state.next_action == "continue":
-                        if state.action == "get_pod_details":
-                            obs = get_pod_details(state.action_input or "")
-                            current_input = f"Observation: {obs}"
-
-                # --- PHASE 2: SOLUTION & REPORT ---
-                if final_diagnosis:
-                    print(f"\n✅ ROOT CAUSE: {final_diagnosis}")
+                if state.next_action == "handoff_to_solution_agent":
+                    print("\n✅ Diagnostic agent completed successfully and is handing off to solution agent.")
+                    sol_agent = await factory.create_solution_agent()
                     sol_thread = sol_agent.get_new_thread()
+                    prompt = (
+                        f"Provide solution or escalation email for the issue {issue.issueType} for {issue.resourceType} "
+                        f"[resourceName={issue.resourceName}, container={issue.container}, namespace={issue.namespace}]. "
+                        f"Diagnostic root cause: [{state.root_cause}]. Other evidence: [{state.thought}]"
+                    )
+                    async for update in sol_agent.run_stream(prompt, thread=sol_thread):
+                        print(update, end="")
+                    break
 
-                    result = await sol_agent.run(f"Fix this: {final_diagnosis}", thread=sol_thread)
+                if state.next_action == "await_user_approval":
+                    choice = human_gatekeeper(state.thought or "")
+                    if choice == "1":
+                        current_input = "Action APPROVED. Proceed."
+                    elif choice == "2":
+                        hint = input("Enter a short hint (optional): ").strip()
+                        current_input = f"Action DENIED. Reason/Hint: {hint}"
+                    elif choice == "3":
+                        current_input = "Manual Handoff requested."
+                    else:
+                        print("Exiting per user request.")
+                        break
+                    continue
 
-                    msgs = getattr(result, "messages", [])
-                    if msgs:
-                        msg_text = msgs[-1].text if hasattr(msgs[-1], 'text') else str(msgs[-1])
-                        print(f"\n[Solution Agent]: {msg_text}")
+                # Default: continue the diagnostic loop
+                current_input = "Continue."
 
-                    # --- FINAL AUDIT LOG ---
-                    if sol_thread.service_thread_id and diag_thread.service_thread_id:
-                        diag_log = await get_clean_history(agents_client, diag_thread.service_thread_id)
-                        sol_log = await get_clean_history(agents_client, sol_thread.service_thread_id)
 
-                        full_report = diag_log + sol_log
-                        print("\n--- Final Audit Log Created ---")
-                        print(json.dumps(full_report, indent=2))
-                        # In production, save 'full_report' to your database/file here.
-            finally:
-                # 2. Cleanup: Explicitly close internal chat clients and agents client
-                try:
-                    if 'diag_agent' in locals() and getattr(diag_agent, 'chat_client', None):
-                        await diag_agent.chat_client.close()
-                except Exception:
-                    pass
-                try:
-                    if 'sol_agent' in locals() and getattr(sol_agent, 'chat_client', None):
-                        await sol_agent.chat_client.close()
-                except Exception:
-                    pass
-                await agents_client.close()
-                # Note: project_client is closed automatically by the 'async with' block
     finally:
+        await agents_client.close()
         await credential.close()
 
 
