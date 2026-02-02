@@ -6,6 +6,10 @@ metadata:
   annotations:
     # 1. Replace this with the Client ID from your Azure Portal/CLI
     azure.workload.identity/client-id: "f0ae3cdf-e852-44e8-a3cf-d8acc158b7c4"
+    # 1. ADD THIS: Your Azure Tenant ID
+    azure.workload.identity/tenant-id: "3416e164-f15c-49dd-8b93-e675843857eb"
+    # 2. ADD THIS: Ensures the token doesn't expire too quickly during debug
+    azure.workload.identity/service-account-token-expiration: "86400"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -26,6 +30,9 @@ spec:
     spec:
       # 3. This tells the pod to use the identity permissions
       serviceAccountName: prometheus-reader-sa
+      # 3. ADD THIS: Security best practice for Workload Identity
+      securityContext:
+        fsGroup: 65534
       containers:
       - name: sreagent-backend
         image: kunyiliu1022/sreagent-backend:latest

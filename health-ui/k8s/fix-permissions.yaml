@@ -1,0 +1,14 @@
+# fix-permissions.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sreagent-mi-read-binding
+subjects:
+- kind: User
+  # This is the Client ID of your Managed Identity
+  name: "f0ae3cdf-e852-44e8-a3cf-d8acc158b7c4"
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: view  # Built-in role that allows listing pods, events, and namespaces
+  apiGroup: rbac.authorization.k8s.io

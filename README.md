@@ -22,6 +22,23 @@ The system:
 
 This project is designed as an MVP-quality demo that balances realism, clarity, and cost efficiency.
 
+
+## App Running Online
+
+The SRE Agent app is available online at:
+
+- [https://sreagent-frontend-dev.westus2.cloudapp.azure.com/](https://sreagent-frontend-dev.westus2.cloudapp.azure.com/)
+
+![App Screenshot](docs/sre_agent_screenshot.png)
+
+You can use the app in two modes:
+
+- **Mock Mode:** The UI and backend use mock data for health issues and diagnostics. This is ideal for demoing the workflow and UI without connecting to a real Kubernetes cluster.
+- **Non-Mock Mode:** Deploy a few intentionally problematic pods from the `demo-apps/` directory to your cluster. The app will detect real unhealthy workloads and allow you to run diagnostics on actual cluster data.
+
+See the [Deploy Demo Apps to Kubernetes](#deploy-demo-apps-to-kubernetes) section for setup instructions.
+
+
 ## Architecture
 ```
 Prometheus ──► Health Aggregator (Code)
@@ -146,6 +163,37 @@ Notes:
 - Manifests are intentionally misconfigured to trigger issues like CrashLoopBackOff, ImagePullBackOff, Pending, OOM, and probe failures.
 - Prometheus-based detection can lag slightly depending on scrape intervals.
 - If your cluster enforces strict policies (PSPs, NetworkPolicies), outcomes may vary; adjust manifests as needed.
+
+
+## Cost Optimization: COGS Saving Sessions
+
+To minimize Azure COGS, the SRE Agent app is only kept online during key demo windows:
+
+- **Active Hours:**
+  - Weekdays: 10am–12pm and 2pm–4pm PST
+- **Inactive Hours:**
+  - The app is stopped outside these windows to reduce costs.
+  - Only the SRE Agent app (frontend/backend) is kept up; all other resources are deprovisioned or scaled down.
+
+This schedule ensures the app is available for demos and development while keeping cloud spend low.
+
+
+## Why Use an Agent Instead of Deterministic Autoheal Scripts?
+
+While deterministic scripts (like Autoheal) are great for well-known, recurring issues, an agent-based approach offers several advantages:
+
+- **Scalability to Rare or Novel Questions:**
+  - Agents can reason about new, previously unseen failure patterns, not just those with pre-written scripts.
+- **Correlation Across Telemetry:**
+  - Agents can analyze and correlate signals from logs, metrics, events, and traces, providing a holistic view.
+- **Natural Language Log Analysis:**
+  - Agents can interpret and summarize natural language logs, error messages, and documentation, making sense of unstructured data.
+- **Human-in-the-Loop:**
+  - The agent can ask for human approval or clarification when uncertain, reducing the risk of false positives or unsafe remediations.
+- **Extensible Reasoning:**
+  - The agent can be extended with new skills, playbooks, and data sources without rewriting core logic.
+
+This makes the SRE Agent approach more robust for complex, evolving, or ambiguous production environments.
 
 ## TODO
 
