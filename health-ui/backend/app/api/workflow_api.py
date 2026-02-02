@@ -31,6 +31,24 @@ router = APIRouter()
 # { issueId: { 'diag_thread_id': str, 'sol_thread_id': Optional[str] } }
 ISSUE_THREAD_MAP: dict[str, dict] = {}
 
+@router.delete("/workflow/threads/{issue_id}")
+async def reset_issue_threads(issue_id: str):
+    """Remove the given issue_id from ISSUE_THREAD_MAP.
+
+    This allows the frontend to clear cached diagnostic/solution threads
+    and re-attempt troubleshooting from a clean slate.
+
+    Returns a simple status payload indicating whether a mapping existed.
+    """
+    existed = issue_id in ISSUE_THREAD_MAP
+    try:
+        ISSUE_THREAD_MAP.pop(issue_id, None)
+        logger.info(f"Cleared ISSUE_THREAD_MAP entry for issueId={issue_id}; existed={existed}")
+        return {"status": "ok", "deleted": bool(existed)}
+    except Exception as e:
+        logger.error(f"Failed to clear ISSUE_THREAD_MAP for issueId={issue_id}: {e}")
+        return {"status": "error", "detail": str(e)}
+
 async def _send_thread_histories(
     ws: WebSocket,
     agents_client: AgentsClient,

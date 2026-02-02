@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
+import { FiRotateCcw } from "react-icons/fi";
 import type { AgentState, MessageItem } from "../api";
 import { SolutionCard } from "./SolutionCard";
 
-export function DiagnosticPanel({ convo, onApprove, onDeny, onHandoff, onResume, hintText, setHintText }: {
+export function DiagnosticPanel({ convo, onApprove, onDeny, onHandoff, onResume, onRetry, hintText, setHintText }: {
   convo: {
     state?: AgentState | null;
     diagnostic: MessageItem[];
@@ -21,6 +22,7 @@ export function DiagnosticPanel({ convo, onApprove, onDeny, onHandoff, onResume,
   onDeny: () => void;
   onHandoff: () => void;
   onResume?: () => void;
+  onRetry: () => void;
   hintText: string;
   setHintText: (v: string) => void;
 }) {
@@ -80,7 +82,18 @@ export function DiagnosticPanel({ convo, onApprove, onDeny, onHandoff, onResume,
         </div>
       )}
       <div className="live-analysis">
-        <div className="panel-heading">Diagnostic Pipeline</div>
+        <div className="panel-heading" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span>Diagnostic Pipeline</span>
+          <button
+            className="icon-button warn"
+            onClick={onRetry}
+            disabled={!!convo.awaitingDecisionInFlight}
+            title="Note: It will clean up the previous records for this issue"
+          >
+            <FiRotateCcw />
+            <span className="sr-only">Retry troubleshooting</span>
+          </button>
+        </div>
         <div className="pipeline-list">
           {(convo.steps || []).map((s, i) => (
             <div key={i} className="pipeline-card">

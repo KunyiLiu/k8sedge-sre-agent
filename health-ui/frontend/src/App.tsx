@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { FiRefreshCw, FiActivity } from "react-icons/fi";
+import { FiRefreshCw, FiActivity, FiToggleLeft, FiToggleRight } from "react-icons/fi";
 import {
   fetchTestMetric,
+  fetchHealthIssues,
   type HealthIssue,
   type AgentState,
   type MessageItem
@@ -18,6 +19,14 @@ function App()
 {
   const [issues, setIssues] = useState<HealthIssue[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isMock, setIsMock] = useState(() => {
+    try {
+      const v = localStorage.getItem("sreagent_isMock");
+      return v === "true";
+    } catch (_) {
+      return false;
+    }
+  });
   const [expandedNamespaces, setExpandedNamespaces] = useState<Record<string, boolean>>({});
   const [threadsByIssue, setThreadsByIssue] = useState<Record<string, { diagThreadId: string; solThreadId?: string | null }>>({});
   const [conversationByIssue, setConversationByIssue] = useState<Record<string, { state?: AgentState | null; diagnostic: MessageItem[]; solution: MessageItem[]; thoughts?: { text: string; ts: number }[]; actions?: { text: string; ts: number }[]; awaitingApprovalQuestion?: string | null; awaitingApprovalEvent?: string | null; awaitingDecisionInFlight?: boolean; isLoading?: boolean; rootCause?: string | null; solutionState?: any | null; steps?: { thought?: string; action?: string; ts: number }[] }>>({});
@@ -25,15 +34,23 @@ function App()
   const [hintText, setHintText] = useState<string>("");
   const wsClientsRef = useRef<Record<string, WorkflowWSClient>>({});
 
+  useEffect(() => {
+    try {
+      localStorage.setItem("sreagent_isMock", isMock ? "true" : "false");
+    } catch (_) {
+      // ignore storage errors
+    }
+  }, [isMock]);
+
   const loadIssues = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchTestMetric();
+      const data = isMock ? await fetchTestMetric() : await fetchHealthIssues();
       setIssues(data);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isMock]);
 
   useEffect(() => {
     loadIssues();
@@ -111,7 +128,7 @@ function App()
     // Ensure client exists per issue
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
     const host = window.location.host;
-    const url = `${proto}://${host}/api/workflow/ws`;
+    const url = `${proto}://${host}/api/workflow/ws${isMock ? "?is_mock=true" : ""}`;
     const existing = wsClientsRef.current[key];
     if (existing?.ws) {
       try { existing.close(); } catch { /* ignore */ }
@@ -237,6 +254,20 @@ function App()
       },
     }));
   };
+  const handleRetry = async () => {
+    if (!selectedIssueKey) return;
+    const issue = issues.find(i => i.issueId === selectedIssueKey);
+    if (!issue) return;
+    try {
+      await fetch(`/api/workflow/threads/${encodeURIComponent(selectedIssueKey)}`, { method: "DELETE" });
+    } catch (_) {
+      // swallow errors; still attempt reconnect
+    }
+    try { wsClientsRef.current[selectedIssueKey]?.close(); } catch {}
+    setThreadsByIssue(prev => ({ ...prev, [selectedIssueKey as string]: { diagThreadId: "", solThreadId: null } }));
+    setConversationByIssue(prev => ({ ...prev, [selectedIssueKey as string]: { state: null, diagnostic: [], solution: [], thoughts: [], actions: [], awaitingApprovalQuestion: null, awaitingApprovalEvent: null, awaitingDecisionInFlight: false, isLoading: true, rootCause: null, solutionState: null, steps: [] } }));
+    handleCardClick(issue);
+  };
   useEffect(() => {
     return () => {
       // Cleanup all open sockets on unmount
@@ -293,10 +324,21 @@ function App()
               <p className="header-subtitle">Autonomous troubleshooting and guided remediation for your clusters</p>
             </div>
           </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <button
+            className={`toggle-button${isMock ? " active" : ""}`}
+            onClick={() => setIsMock(v => !v)}
+            title={isMock ? "Mock mode: ON" : "Mock mode: OFF"}
+          >
+            {isMock ? <FiToggleRight /> : <FiToggleLeft />}
+            {isMock && <span className="toggle-label"> Mock</span>}
+            <span className="sr-only">Toggle Mock Mode</span>
+          </button>
           <button className="refresh-button" onClick={loadIssues} disabled={loading} title="Manual Refresh">
             <FiRefreshCw />
             <span className="sr-only">Manual Refresh</span>
           </button>
+          </div>
         </header>
         <div className={selectedIssueKey ? "grid" : "grid single"}>
           <div className="left-pane">
@@ -338,6 +380,7 @@ function App()
                 onDeny={handleDeny}
                 onHandoff={handleHandoff}
                 onResume={handleResume}
+                onRetry={handleRetry}
                 hintText={hintText}
                 setHintText={setHintText}
               />

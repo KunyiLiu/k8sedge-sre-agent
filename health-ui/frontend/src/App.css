@@ -82,6 +82,72 @@
 	box-shadow: none;
 }
 
+/* Mock mode toggle button matching app aesthetics */
+.toggle-button {
+	background: rgba(38, 18, 76, 0.9);
+	border-radius: 999px;
+	border: 1px solid rgba(124, 77, 255, 0.65);
+	color: #e9eef6;
+	cursor: pointer;
+	font-size: 22px;
+	padding: 8px 12px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-shadow: 0 8px 20px rgba(0,0,0,0.45);
+	transition: transform 0.15s ease-out, box-shadow 0.15s ease-out, background 0.15s ease-out, border-color 0.15s ease-out;
+}
+.toggle-button .toggle-label {
+	font-size: 12px;
+	margin-left: 8px;
+	color: #9fb4ff;
+	letter-spacing: 0.06em;
+}
+.toggle-button:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 12px 26px rgba(0,0,0,0.6);
+	background: rgba(56, 24, 112, 0.98);
+	border-color: #7c4dff;
+}
+.toggle-button.active {
+	background: rgba(10, 68, 140, 0.98);
+	border-color: #00d1ff;
+}
+.toggle-button.active .toggle-label {
+	color: #e9eef6;
+	font-weight: 600;
+}
+.toggle-button.active:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 12px 26px rgba(0,0,0,0.6);
+	background: rgba(14, 88, 176, 0.98);
+	border-color: #00d1ff;
+}
+
+/* Small icon button for inline actions */
+.icon-button {
+	background: transparent;
+	border: 1px solid #4f5b93;
+	color: #cfd8dc;
+	cursor: pointer;
+	font-size: 18px;
+	padding: 6px 8px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999px;
+	transition: transform 0.12s ease-out, box-shadow 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out;
+}
+.icon-button:hover:not([disabled]) {
+	transform: translateY(-1px);
+	box-shadow: 0 8px 16px rgba(0,0,0,0.45);
+	background: #1b2133;
+	border-color: #7c8ac7;
+}
+.icon-button[disabled] { opacity: 0.5; cursor: default; }
+.icon-button.warn { border-color: #f57c00; color: #f9e1c7; }
+.icon-button.warn:hover:not([disabled]) { background: rgba(245, 124, 0, 0.18); }
+
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .grid.single { grid-template-columns: 1fr; justify-items: center; }
 .left-pane { display: flex; flex-direction: column; gap: 16px; }
