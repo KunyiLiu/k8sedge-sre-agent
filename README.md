@@ -170,12 +170,17 @@ Notes:
 To minimize Azure COGS, the SRE Agent app is only kept online during key demo windows:
 
 - **Active Hours:**
-  - Weekdays: 10am–12pm and 2pm–4pm PST
+  - Weekdays
 - **Inactive Hours:**
   - The app is stopped outside these windows to reduce costs.
   - Only the SRE Agent app (frontend/backend) is kept up; all other resources are deprovisioned or scaled down.
 
-This schedule ensures the app is available for demos and development while keeping cloud spend low.
+**Additional cost optimizations:**
+- The backend uses the `gpt-4-1-mini` model, which is faster and more cost-effective than larger models, for most agent reasoning tasks.
+- Token caching is enabled to avoid repeated token usage for similar prompts and responses.
+- Some function/tool returns are pruned or summarized to reduce the number of tokens sent to the model, further lowering costs and improving response speed.
+
+This schedule and architecture ensure the app is available for demos and development while keeping cloud spend low and maximizing efficiency.
 
 
 ## Why Use an Agent Instead of Deterministic Autoheal Scripts?
