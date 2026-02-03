@@ -2,7 +2,7 @@
 AI-Powered Kubernetes Troubleshooting Agent (MVP). An AI-assisted SRE troubleshooting system that detects unhealthy Kubernetes workloads using Prometheus metrics and guides users through human-in-the-loop, ReAct-style diagnostics powered by Azure AI Foundry.
 
 ## TL;DR Demo (Intro)
-<video src="docs/K8s_SRE_Agent_Intro.mp4" controls width="720">Intro Video</video>
+[▶️ Watch Intro Video](https://drive.google.com/file/d/1u4_trzSATxQBtD_kVfQOiz1zdxlOcBdg/view?usp=drive_link)
 
 ![Project Architecture](docs/project_architecture.png)
 
