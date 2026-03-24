@@ -2,7 +2,7 @@
 AI-Powered Kubernetes Troubleshooting Agent (MVP). An AI-assisted SRE troubleshooting system that detects unhealthy Kubernetes workloads using Prometheus metrics and guides users through human-in-the-loop, ReAct-style diagnostics powered by Azure AI Foundry.
 
 ## TL;DR Demo (Intro)
-[▶️ Watch Intro Video](https://drive.google.com/file/d/1u4_trzSATxQBtD_kVfQOiz1zdxlOcBdg/view?usp=drive_link)
+[▶️ Watch Intro Video](https://youtu.be/UrldrX17MK4?si=4o8hkFzM0Y9uNn-l)
 
 ![Project Architecture](docs/project_architecture.png)
 
@@ -65,38 +65,38 @@ Prometheus ──► Health Aggregator (Code)
 
 ## Core Components
 1. **Kubernetes Cluster (AKS)**
-       - Azure Kubernetes Service (AKS).
-       - Single system node pool (cost-optimized).
-       - Demo workloads intentionally deployed in broken states.
+- Azure Kubernetes Service (AKS).
+- Single system node pool (cost-optimized).
+- Demo workloads intentionally deployed in broken states.
 
-2. **Prometheus (Metrics Source)**
-       - Includes `kube-state-metrics`.
-       - Detects CrashLoopBackOff, ImagePullBackOff, Pending pods.
-       - Queried directly via Prometheus HTTP API.
+3. **Prometheus (Metrics Source)**
+- Includes `kube-state-metrics`.
+- Detects CrashLoopBackOff, ImagePullBackOff, Pending pods.
+- Queried directly via Prometheus HTTP API.
 
-3. **Health Aggregator (Deterministic)**
-       - Pure code (no LLM).
-       - Periodically queries Prometheus.
-       - Builds a list of current unhealthy issues.
-       - Provides structured context to AI agents.
+5. **Health Aggregator (Deterministic)**
+- Pure code (no LLM).
+- Periodically queries Prometheus.
+- Builds a list of current unhealthy issues.
+- Provides structured context to AI agents.
 
-4. **AI Agents (Azure AI Foundry)**
-       - Diagnostic Agent:
-              - ReAct-style loop (Think → Act → Observe).
-              - Uses RAG over Kubernetes TSG playbooks and skills (`kubectl`, Prometheus queries, log fetch).
-              - Stops before ambiguous state and asks for user approval.
-              - Terminates when root cause confidence is reached.
+6. **AI Agents (Azure AI Foundry)**
+- Diagnostic Agent:
+   - ReAct-style loop (Think → Act → Observe).
+   - Uses RAG over Kubernetes troubleshooting playbooks and skills (`kubectl`, Prometheus queries, log fetch).
+   - Stops before ambiguous state and asks for user approval.
+   - Terminates when root cause confidence is reached.
 
-5. **Solution Agent**
-       - Receives full diagnostic context.
-       - Generates fix recommendations and next-step guidance.
-       - Optional escalation summary.
+- Solution Agent**
+  - Receives full diagnostic context.
+  - Generates fix recommendations and next-step guidance.
+  - Optional escalation summary.
 
-6. **UI (MVP)**
-       - Lists unhealthy pods/nodes.
-       - Allows user to start diagnostic flow.
-       - Displays step-by-step reasoning and actions.
-       - Human-in-the-loop confirmation.
+7. **UI (MVP)**
+- Lists unhealthy pods/nodes.
+- Allows user to start diagnostic flow.
+- Displays step-by-step reasoning and actions.
+- Human-in-the-loop confirmation.
 
 ## Highlights
 
