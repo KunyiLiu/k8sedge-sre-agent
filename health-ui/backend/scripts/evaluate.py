@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -25,13 +26,11 @@ def load_root_env() -> None:
 
     load_dotenv(dotenv_path=root_env)
 
-
-load_root_env()
-
 from app.evaluation.golden_loader import filter_scenarios, load_golden_scenarios
 from app.evaluation.judge import create_judge_client_from_env
 from app.evaluation.reporting import render_console_report, write_json_report
 from app.evaluation.runner import evaluate_scenarios, load_agent_traces
+from app.evaluation.trace_generation import AzureDiagnosticTraceGenerator
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -39,16 +38,54 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--golden-dir", type=Path, default=None, help="JSON golden scenario file or directory.")
     parser.add_argument("--suite", default="fast", help="Scenario tag to run, or 'full'.")
     parser.add_argument("--traces", type=Path, default=None, help="Captured agent trace JSON file keyed by scenario id.")
+    parser.add_argument(
+        "--generate-traces",
+        action="store_true",
+        help="Generate fresh traces by running AgentFactory.create_diagnostic_agent() with mock tools.",
+    )
+    parser.add_argument(
+        "--generated-traces-output",
+        type=Path,
+        default=None,
+        help="Write generated traces as JSON for later --traces reuse.",
+    )
+    parser.add_argument("--max-steps", type=int, default=12, help="Maximum diagnostic ReAct steps for generated traces.")
     parser.add_argument("--output", type=Path, default=None, help="Write the full evaluation report as JSON.")
     parser.add_argument("--fail-under-deterministic", type=float, default=1.0, help="Minimum deterministic pass rate.")
     parser.add_argument("--fail-under-tool-selection", type=float, default=1.0, help="Minimum tool-selection pass rate.")
-    parser.add_argument("--judge", action="store_true", help="Reserved for LLM-as-judge runs; no client is configured by default.")
+    parser.add_argument("--judge", action="store_true", help="Enable optional LLM-as-judge scoring.")
     return parser
 
 
 async def main_async(args: argparse.Namespace) -> int:
+    if args.traces and args.generate_traces:
+        print("Use either --traces or --generate-traces, not both.", file=sys.stderr)
+        return 2
+
+    if args.generate_traces or args.judge:
+        load_root_env()
+
     scenarios = filter_scenarios(load_golden_scenarios(args.golden_dir), args.suite)
     traces = load_agent_traces(args.traces) if args.traces else None
+    if args.generate_traces:
+        traces = {}
+        for scenario in scenarios:
+            generator = AzureDiagnosticTraceGenerator.from_env(
+                mock_profile=scenario.mock_profile,
+                max_steps=args.max_steps,
+            )
+            try:
+                traces[scenario.id] = await generator.generate(scenario)
+            finally:
+                await generator.close()
+
+        if args.generated_traces_output:
+            args.generated_traces_output.parent.mkdir(parents=True, exist_ok=True)
+            args.generated_traces_output.write_text(
+                json.dumps({key: trace.model_dump(mode="json") for key, trace in traces.items()}, indent=2),
+                encoding="utf-8",
+            )
+
     judge_client = create_judge_client_from_env() if args.judge else None
     try:
         report = await evaluate_scenarios(scenarios, suite=args.suite, traces=traces, judge_client=judge_client)

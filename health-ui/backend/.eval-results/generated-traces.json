@@ -1,0 +1,150 @@
+{
+  "imagepullbackoff-private-registry-missing-imagepullsecret": {
+    "agent_diagnosis": "Missing imagePullSecret 'private-registry-secret' in the 'default' namespace prevents pulling image from private registry.",
+    "agent_tool_sequence": [
+      "functions.get_image_pull_events",
+      "functions.get_workload_yaml",
+      "functions.get_service_account_details",
+      "functions.get_secret_exists"
+    ],
+    "agent_thought_chain": [
+      "ImagePullBackOff indicates a failure to pull the container image. According to TSGs, the first step is to check pod events for image pull errors to identify the specific cause.",
+      "Events confirm image pull failures with ErrImagePull and ImagePullBackOff reasons. Next, check the pod's container image specification and related service account imagePullSecrets to diagnose authentication or image reference issues.",
+      "The pod spec shows the container image is from a private registry 'private.registry.local'. According to TSGs, image pull failures from private registries often relate to missing or incorrect imagePullSecrets. Next, check the service account used by the pod for imagePullSecrets.",
+      "The default service account in the 'default' namespace has no imagePullSecrets configured, which likely causes the ImagePullBackOff for the private registry image. Next, confirm if the required imagePullSecret exists in the namespace to verify if it is missing or misconfigured.",
+      "The expected imagePullSecret 'private-registry-secret' does not exist in the 'default' namespace, explaining why the pod cannot pull the private image. This missing secret is the root cause of the ImagePullBackOff error."
+    ],
+    "termination_status": "completed",
+    "step_count": 1,
+    "error": null,
+    "raw": {
+      "states": [
+        {
+          "thought": "ImagePullBackOff indicates a failure to pull the container image. According to TSGs, the first step is to check pod events for image pull errors to identify the specific cause.",
+          "action": "functions.get_image_pull_events",
+          "action_input": {
+            "name": "api-1",
+            "namespace": "default"
+          },
+          "next_action": "continue",
+          "root_cause": null
+        },
+        {
+          "thought": "Events confirm image pull failures with ErrImagePull and ImagePullBackOff reasons. Next, check the pod's container image specification and related service account imagePullSecrets to diagnose authentication or image reference issues.",
+          "action": "functions.get_workload_yaml",
+          "action_input": {
+            "kind": "Pod",
+            "name": "api-1",
+            "namespace": "default"
+          },
+          "next_action": "continue",
+          "root_cause": null
+        },
+        {
+          "thought": "The pod spec shows the container image is from a private registry 'private.registry.local'. According to TSGs, image pull failures from private registries often relate to missing or incorrect imagePullSecrets. Next, check the service account used by the pod for imagePullSecrets.",
+          "action": "functions.get_service_account_details",
+          "action_input": {
+            "name": "default",
+            "namespace": "default"
+          },
+          "next_action": "continue",
+          "root_cause": null
+        },
+        {
+          "thought": "The default service account in the 'default' namespace has no imagePullSecrets configured, which likely causes the ImagePullBackOff for the private registry image. Next, confirm if the required imagePullSecret exists in the namespace to verify if it is missing or misconfigured.",
+          "action": "functions.get_secret_exists",
+          "action_input": {
+            "name": "private-registry-secret",
+            "namespace": "default"
+          },
+          "next_action": "continue",
+          "root_cause": null
+        },
+        {
+          "thought": "The expected imagePullSecret 'private-registry-secret' does not exist in the 'default' namespace, explaining why the pod cannot pull the private image. This missing secret is the root cause of the ImagePullBackOff error.",
+          "action": null,
+          "action_input": null,
+          "next_action": "handoff_to_solution_agent",
+          "root_cause": "Missing imagePullSecret 'private-registry-secret' in the 'default' namespace prevents pulling image from private registry."
+        }
+      ]
+    }
+  },
+  "crashloop-app-exception": {
+    "agent_diagnosis": "Application bug causing NullPointerException during initialization leading to CrashLoopBackOff.",
+    "agent_tool_sequence": [
+      "functions.get_pod_diagnostics"
+    ],
+    "agent_thought_chain": [
+      "Pod api-2 in namespace default is in CrashLoopBackOff. To diagnose, I will gather pod diagnostics including status, restart count, exit code, and container logs as recommended by relevant TSGs for CrashLoopBackOff.",
+      "Pod api-2 is crashing with exit code 1 and last exit reason 'Error'. Logs show a NullPointerException in the application initialization, indicating a likely application bug causing the CrashLoopBackOff."
+    ],
+    "termination_status": "completed",
+    "step_count": 1,
+    "error": null,
+    "raw": {
+      "states": [
+        {
+          "thought": "Pod api-2 in namespace default is in CrashLoopBackOff. To diagnose, I will gather pod diagnostics including status, restart count, exit code, and container logs as recommended by relevant TSGs for CrashLoopBackOff.",
+          "action": "functions.get_pod_diagnostics",
+          "action_input": {
+            "name": "api-2",
+            "namespace": "default"
+          },
+          "next_action": "continue",
+          "root_cause": null
+        },
+        {
+          "thought": "Pod api-2 is crashing with exit code 1 and last exit reason 'Error'. Logs show a NullPointerException in the application initialization, indicating a likely application bug causing the CrashLoopBackOff.",
+          "action": null,
+          "action_input": null,
+          "next_action": "handoff_to_solution_agent",
+          "root_cause": "Application bug causing NullPointerException during initialization leading to CrashLoopBackOff."
+        }
+      ]
+    }
+  },
+  "pending-insufficient-memory": {
+    "agent_diagnosis": "Pod worker-7 is Pending because no nodes have sufficient memory to satisfy its resource requests.",
+    "agent_tool_sequence": [
+      "functions.get_pod_scheduling_events",
+      "functions.get_node_allocatable_resources"
+    ],
+    "agent_thought_chain": [
+      "Pod worker-7 is in Pending state. According to TSGs, the first step is to check pod scheduling events to identify why it is not scheduled.",
+      "Scheduling events indicate the pod worker-7 is Pending due to insufficient memory on all nodes. Next, check node allocatable resources to confirm memory availability.",
+      "Node allocatable resources confirm no nodes have enough memory for the pod's requested resources. This matches the scheduling failure due to insufficient memory."
+    ],
+    "termination_status": "completed",
+    "step_count": 1,
+    "error": null,
+    "raw": {
+      "states": [
+        {
+          "thought": "Pod worker-7 is in Pending state. According to TSGs, the first step is to check pod scheduling events to identify why it is not scheduled.",
+          "action": "functions.get_pod_scheduling_events",
+          "action_input": {
+            "name": "worker-7",
+            "namespace": "default"
+          },
+          "next_action": "continue",
+          "root_cause": null
+        },
+        {
+          "thought": "Scheduling events indicate the pod worker-7 is Pending due to insufficient memory on all nodes. Next, check node allocatable resources to confirm memory availability.",
+          "action": "functions.get_node_allocatable_resources",
+          "action_input": {},
+          "next_action": "continue",
+          "root_cause": null
+        },
+        {
+          "thought": "Node allocatable resources confirm no nodes have enough memory for the pod's requested resources. This matches the scheduling failure due to insufficient memory.",
+          "action": null,
+          "action_input": null,
+          "next_action": "handoff_to_solution_agent",
+          "root_cause": "Pod worker-7 is Pending because no nodes have sufficient memory to satisfy its resource requests."
+        }
+      ]
+    }
+  }
+}

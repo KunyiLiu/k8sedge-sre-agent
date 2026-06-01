@@ -115,6 +115,13 @@ Score externally captured agent traces instead of the recorded golden traces:
 uv run scripts\evaluate.py --suite fast --traces .eval-results\captured-traces.json
 ```
 
+Generate fresh traces by running the diagnostic agent with each scenario's mock tool profile:
+```powershell
+uv run scripts\evaluate.py --suite smoke --generate-traces --generated-traces-output .eval-results\generated-traces.json
+```
+
+`--generate-traces` creates the diagnostic agent through `AgentFactory.create_diagnostic_agent()`, uses `AZURE_AI_PROJECT_ENDPOINT` from `health-ui\.env`, authenticates with `DefaultAzureCredential`, and injects deterministic mock Kubernetes tools from the scenario `mock_profile`. This mode requires Azure project access and is intended for manual/full benchmark runs rather than the default PR gate.
+
 Run optional LLM-as-judge scoring for a manual/full benchmark:
 ```powershell
 uv run scripts\evaluate.py --suite fast --judge

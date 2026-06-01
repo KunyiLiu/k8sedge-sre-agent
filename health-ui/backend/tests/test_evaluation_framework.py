@@ -9,6 +9,8 @@ from app.evaluation.models import AgentTrace, JudgeScore, Verdict
 from app.evaluation.reporting import render_console_report
 from app.evaluation.runner import evaluate_scenarios
 from app.evaluation.scoring import expected_tools_in_order, score_scenario
+from app.evaluation.trace_generation import DiagnosticTraceGenerator
+from app.skills.mock_k8s_diag import MockK8sDiag
 
 
 class EvaluationFrameworkTests(unittest.TestCase):
@@ -138,6 +140,52 @@ class EvaluationFrameworkTests(unittest.TestCase):
         self.assertEqual(report.summary.total, len(scenarios))
         self.assertEqual(report.summary.failed, 0)
         self.assertIn("Evaluation suite: smoke", render_console_report(report))
+
+    def test_diagnostic_trace_generator_captures_agent_states(self):
+        class Update:
+            def __init__(self, text):
+                self.text = text
+
+        class FakeAgent:
+            def __init__(self):
+                self.calls = 0
+
+            def get_new_thread(self):
+                return object()
+
+            async def run_stream(self, current_input, thread):
+                self.calls += 1
+                if self.calls == 1:
+                    yield Update(
+                        '{"thought":"check events","action":"functions.get_pod_events",'
+                        '"action_input":{"name":"api-1"},"next_action":"continue","root_cause":null}'
+                    )
+                else:
+                    yield Update(
+                        '{"thought":"root cause found","action":null,"action_input":null,'
+                        '"next_action":"handoff_to_solution_agent","root_cause":"missing secret"}'
+                    )
+
+        class FakeFactory:
+            async def create_diagnostic_agent(self):
+                return FakeAgent()
+
+        scenario = load_golden_scenarios()[0]
+
+        trace = asyncio.run(DiagnosticTraceGenerator(FakeFactory(), max_steps=3).generate(scenario))
+
+        self.assertEqual(trace.agent_diagnosis, "missing secret")
+        self.assertEqual(trace.agent_tool_sequence, ["functions.get_pod_events"])
+        self.assertEqual(trace.step_count, 2)
+
+    def test_mock_profiles_support_full_scenario_ids(self):
+        mock = MockK8sDiag(profile="imagepullbackoff-private-registry-missing-imagepullsecret")
+
+        service_account = mock.get_service_account_details("default", "default")
+        workload = mock.get_workload_yaml("Deployment", "api-1", "default")
+
+        self.assertIn('"imagePullSecrets": []', service_account)
+        self.assertIn("private.registry.local", workload)
 
 
 if __name__ == "__main__":

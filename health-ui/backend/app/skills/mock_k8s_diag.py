@@ -12,6 +12,9 @@ class MockK8sDiag:
         # Normalize profile to lowercase for simple matching
         self.profile = (profile or "default").lower()
 
+    def _profile_contains(self, value: str) -> bool:
+        return value.lower() in self.profile
+
     def _load_kube_config(self) -> None:
         """No-op loader used in tests to mirror k8s config initialization."""
         logger.info("_load_kube_config() called (no-op)")
@@ -86,7 +89,7 @@ class MockK8sDiag:
         Useful for testing CrashLoopBackOff and OOMKilled patterns without a real cluster.
         """
         logger.debug(f"-----------Calling get_pod_diagnostics(name={name}, namespace={namespace}, profile={self.profile})")
-        if self.profile == "imagepullbackoff":
+        if self._profile_contains("imagepullbackoff"):
             report = {
                 "phase": "ImagePullBackOff",
                 "restarts": 0,
@@ -97,10 +100,10 @@ class MockK8sDiag:
             }
         else:
             report = {
-                "phase": "CrashLoopBackOff" if self.profile == "crashloop" else "Running",
-                "restarts": 3 if self.profile == "crashloop" else 0,
-                "last_exit_reason": "Error" if self.profile == "crashloop" else None,
-                "last_exit_code": 1 if self.profile == "crashloop" else None,
+                "phase": "CrashLoopBackOff" if self._profile_contains("crashloop") else "Running",
+                "restarts": 3 if self._profile_contains("crashloop") else 0,
+                "last_exit_reason": "Error" if self._profile_contains("crashloop") else None,
+                "last_exit_code": 1 if self._profile_contains("crashloop") else None,
                 "current_logs": f"CRITICAL: {name} in {namespace} experiencing repeated failures; readiness probe failing; high error rate; immediate attention required",
                 "previous_logs": "java.lang.NullPointerException at com.app.Main.init..."
             }
@@ -109,7 +112,7 @@ class MockK8sDiag:
     def get_pod_events(self, name: str, namespace: str, limit: int = 20) -> str:
         """Return recent events for a Pod (reason + message) as deterministic mock data."""
         logger.debug(f"-----------Calling get_pod_events(name={name}, namespace={namespace}, limit={limit}, profile={self.profile})")
-        if self.profile == "imagepullbackoff":
+        if self._profile_contains("imagepullbackoff"):
             events = [
                 {
                     "type": "Warning",
@@ -144,7 +147,7 @@ class MockK8sDiag:
     def get_image_pull_events(self, name: str, namespace: str) -> str:
         """Filter Pod events to those likely related to image pull failures (mock)."""
         logger.debug(f"-----------Calling get_image_pull_events(name={name}, namespace={namespace}, profile={self.profile})")
-        if self.profile == "imagepullbackoff":
+        if self._profile_contains("imagepullbackoff"):
             events = [
                 {
                     "type": "Warning",
@@ -179,7 +182,7 @@ class MockK8sDiag:
     def get_service_account_details(self, name: str, namespace: str) -> str:
         """Return details of a ServiceAccount, including referenced imagePullSecrets (mock)."""
         logger.debug(f"-----------Calling get_service_account_details(name={name}, namespace={namespace}, profile={self.profile})")
-        if self.profile == "imagepullbackoff":
+        if self._profile_contains("imagepullbackoff"):
             info = {
                 "name": name,
                 "secrets": [],
@@ -196,7 +199,7 @@ class MockK8sDiag:
     def get_secret_exists(self, name: str, namespace: str) -> str:
         """Return whether a Secret exists in the namespace (mock always True)."""
         logger.debug(f"-----------Calling get_secret_exists(name={name}, namespace={namespace}, profile={self.profile})")
-        if self.profile == "imagepullbackoff":
+        if self._profile_contains("imagepullbackoff") or self._profile_contains("secret-not-found"):
             return json.dumps({"exists": False})
         return json.dumps({"exists": True})
 
@@ -208,7 +211,7 @@ class MockK8sDiag:
         """
         logger.debug(f"-----------Calling get_workload_yaml(kind={kind}, name={name}, namespace={namespace}, profile={self.profile})")
         image = "mock.registry.local/mock:latest"
-        if self.profile == "imagepullbackoff":
+        if self._profile_contains("imagepullbackoff"):
             image = "private.registry.local/protected/app:latest"
         obj = {
             "apiVersion": "apps/v1",
@@ -240,7 +243,7 @@ class MockK8sDiag:
     def get_pod_top_metrics(self, name: str, namespace: str) -> str:
         """Attempt to fetch live pod metrics (mock), shaped like metrics.k8s.io output."""
         logger.debug(f"-----------Calling get_pod_top_metrics(name={name}, namespace={namespace}, profile={self.profile})")
-        if self.profile == "imagepullbackoff":
+        if self._profile_contains("imagepullbackoff"):
             metrics = {
                 "metadata": {"name": name, "namespace": namespace},
                 "timestamp": "2026-01-18T00:00:00Z",
