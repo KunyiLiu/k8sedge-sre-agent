@@ -22,9 +22,9 @@ function App()
   const [isMock, setIsMock] = useState(() => {
     try {
       const v = localStorage.getItem("sreagent_isMock");
-      return v === "true";
+      return v === null ? true : v === "true";
     } catch (_) {
-      return false;
+      return true;
     }
   });
   const [expandedNamespaces, setExpandedNamespaces] = useState<Record<string, boolean>>({});

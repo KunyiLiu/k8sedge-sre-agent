@@ -91,6 +91,59 @@ Once running locally on `http://localhost:8000`:
   curl -X POST http://localhost:8000/api/workflow/test -H "Content-Type: application/json" -d '{"pod_name":"demo-pod-123"}'
   ```
 
+## Run Golden-Set Evaluations
+
+The backend includes a golden-set evaluation framework under `app/evaluation/`.
+
+- Golden scenarios live in `app/evaluation/golden/scenarios.json`.
+- Deterministic scoring checks completion, root-cause presence, expected primary tool order, and forbidden tools.
+- LLM-as-judge prompt/schema helpers are implemented in `app/evaluation/judge.py`, but the default CLI path is deterministic so PR builds do not require model credentials.
+
+Run the fast deterministic suite:
+```powershell
+cd C:\Users\kunyl\source\k8sedge-sre-agent\health-ui\backend
+uv run scripts\evaluate.py --suite fast
+```
+
+Run the smoke suite and write a JSON report:
+```powershell
+uv run scripts\evaluate.py --suite smoke --output .eval-results\smoke.json
+```
+
+Score externally captured agent traces instead of the recorded golden traces:
+```powershell
+uv run scripts\evaluate.py --suite fast --traces .eval-results\captured-traces.json
+```
+
+Run optional LLM-as-judge scoring for a manual/full benchmark:
+```powershell
+uv run scripts\evaluate.py --suite fast --judge
+```
+
+The evaluation CLI loads `health-ui\.env` automatically, matching `scripts\workflow_test.py`. By default, `--judge` reuses the existing Azure AI Project configuration:
+```env
+AZURE_AI_PROJECT_ENDPOINT=<project-endpoint>
+```
+
+It authenticates with `DefaultAzureCredential`, so use the same Azure login/service-principal setup as the app. The judge model defaults to `gpt-4.1-mini`; optionally set `EVALUATION_JUDGE_MODEL_DEPLOYMENT` or `AZURE_AI_MODEL_DEPLOYMENT_NAME` in `health-ui\.env` to override it.
+
+If `AZURE_AI_PROJECT_ENDPOINT` is not set, the CLI can still fall back to OpenAI-compatible configuration with `OPENAI_API_KEY` and optional `OPENAI_MODEL`.
+
+Captured traces can be either a map keyed by scenario id or a list of objects with `scenario_id` and `trace` fields. Each trace should include:
+```json
+{
+  "agent_diagnosis": "The diagnosed root cause.",
+  "agent_tool_sequence": ["functions.get_pod_events"],
+  "agent_thought_chain": ["Reasoning step 1."],
+  "termination_status": "completed"
+}
+```
+
+Run evaluation tests:
+```powershell
+uv run -m unittest discover -s tests
+```
+
 ## Why WebSocket for the Workflow API
 
 The diagnostic workflow is a long-running, step-by-step process (ReAct + function calling) that benefits from real-time, bidirectional communication between the UI and backend.
@@ -236,4 +289,3 @@ Use the provided `docker-compose.yml` in `health-ui/`.
 - The Dockerfile uses `uv` and creates a virtual environment at `/app/.venv`.
 - The backend app entrypoint is `app.main:app` (Uvicorn/ASGI).
 - Azure identity uses `DefaultAzureCredential` in metrics API and `AzureCliCredential` in workflow; ensure your environment has the right credentials and access.
-
