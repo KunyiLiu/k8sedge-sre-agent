@@ -1,0 +1,1050 @@
+[
+  {
+    "id": "imagepullbackoff-private-registry-missing-imagepullsecret",
+    "tags": ["smoke", "fast", "imagepullbackoff", "pod", "mock"],
+    "mock_profile": "imagepullbackoff-private-registry-missing-imagepullsecret",
+    "issue": {
+      "issueType": "ImagePullBackOff",
+      "severity": "High",
+      "resourceType": "Pod",
+      "namespace": "default",
+      "resourceName": "api-1",
+      "container": "api",
+      "unhealthySince": "01h 30m",
+      "unhealthyTimespan": 5400,
+      "message": "Container failed to pull image (ImagePullBackOff)."
+    },
+    "expected_diagnosis": "Missing imagePullSecrets in the service account for accessing the private container registry.",
+    "expected_primary_tools": [
+      "functions.get_image_pull_events",
+      "functions.get_workload_yaml",
+      "functions.get_service_account_details"
+    ],
+    "allowed_extra_tools": ["functions.get_pod_events", "functions.get_secret_exists"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "ErrImagePull and ImagePullBackOff events are present.",
+      "Workload image uses a private registry.",
+      "Service account has no imagePullSecrets."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "Missing imagePullSecrets in the service account for accessing the private container registry.",
+      "agent_tool_sequence": [
+        "functions.get_image_pull_events",
+        "functions.get_workload_yaml",
+        "functions.get_service_account_details"
+      ],
+      "agent_thought_chain": [
+        "ImagePullBackOff indicates a failure to pull the container image, so first check pod events for image pull errors.",
+        "Events confirm ErrImagePull and ImagePullBackOff, so inspect the workload spec for the image and imagePullSecrets.",
+        "The workload uses a private registry and no imagePullSecrets are set, so check the service account.",
+        "The default service account has no imagePullSecrets configured, which explains the private registry image pull failure."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "imagepullbackoff-manifest-unknown-tag",
+    "tags": ["fast", "imagepullbackoff", "pod", "mock"],
+    "mock_profile": "imagepullbackoff-manifest-unknown-tag",
+    "issue": {
+      "issueType": "ImagePullBackOff",
+      "severity": "High",
+      "resourceType": "Pod",
+      "namespace": "payments",
+      "resourceName": "payments-api-6f8c9",
+      "container": "payments-api",
+      "unhealthySince": "00h 42m",
+      "unhealthyTimespan": 2520,
+      "message": "Container image pull is failing with manifest unknown."
+    },
+    "expected_diagnosis": "The workload references an image tag that does not exist in the registry.",
+    "expected_primary_tools": ["functions.get_image_pull_events", "functions.get_workload_yaml"],
+    "allowed_extra_tools": ["functions.get_pod_events"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Image pull event reports manifest unknown.",
+      "Workload YAML contains the unavailable image tag."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The pod is using a non-existent image tag, causing registry manifest unknown errors.",
+      "agent_tool_sequence": ["functions.get_image_pull_events", "functions.get_workload_yaml"],
+      "agent_thought_chain": [
+        "ImagePullBackOff should be triaged from image pull events first.",
+        "The event says manifest unknown, so inspect the workload image field.",
+        "The image tag in the workload matches the missing manifest and is the root cause."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "imagepullbackoff-registry-secret-not-found",
+    "tags": ["fast", "imagepullbackoff", "pod", "mock"],
+    "mock_profile": "imagepullbackoff-registry-secret-not-found",
+    "issue": {
+      "issueType": "ImagePullBackOff",
+      "severity": "High",
+      "resourceType": "Pod",
+      "namespace": "checkout",
+      "resourceName": "checkout-api-77d9",
+      "container": "checkout",
+      "unhealthySince": "00h 55m",
+      "unhealthyTimespan": 3300,
+      "message": "Image pull failed for private registry credentials."
+    },
+    "expected_diagnosis": "The imagePullSecret referenced by the workload does not exist in the namespace.",
+    "expected_primary_tools": [
+      "functions.get_image_pull_events",
+      "functions.get_workload_yaml",
+      "functions.get_secret_exists"
+    ],
+    "allowed_extra_tools": ["functions.get_service_account_details"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Events mention failure to retrieve image pull secret.",
+      "Workload references a registry secret.",
+      "The referenced secret is missing."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The referenced imagePullSecret is missing from the namespace.",
+      "agent_tool_sequence": [
+        "functions.get_image_pull_events",
+        "functions.get_workload_yaml",
+        "functions.get_secret_exists"
+      ],
+      "agent_thought_chain": [
+        "Check image pull events to identify whether this is auth, DNS, or tag related.",
+        "The event points to a missing pull secret, so inspect the workload reference.",
+        "The workload references a secret that does not exist, which causes the pull failure."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "imagepullbackoff-registry-dns-failure",
+    "tags": ["fast", "imagepullbackoff", "pod", "mock"],
+    "mock_profile": "imagepullbackoff-registry-dns-failure",
+    "issue": {
+      "issueType": "ImagePullBackOff",
+      "severity": "High",
+      "resourceType": "Pod",
+      "namespace": "platform",
+      "resourceName": "worker-0",
+      "container": "worker",
+      "unhealthySince": "00h 25m",
+      "unhealthyTimespan": 1500,
+      "message": "Failed to resolve registry host during image pull."
+    },
+    "expected_diagnosis": "The node cannot resolve the container registry hostname.",
+    "expected_primary_tools": ["functions.get_image_pull_events", "functions.get_node_network_status"],
+    "allowed_extra_tools": ["functions.get_workload_yaml"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Image pull event contains DNS lookup failure.",
+      "Node network diagnostics show registry hostname resolution failure."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "Registry DNS resolution is failing from the node, preventing the image pull.",
+      "agent_tool_sequence": ["functions.get_image_pull_events", "functions.get_node_network_status"],
+      "agent_thought_chain": [
+        "Start with image pull events for the exact pull error.",
+        "The event indicates DNS lookup failure, so check node network and DNS status.",
+        "Node diagnostics confirm the registry hostname cannot be resolved."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "crashloop-app-exception",
+    "tags": ["smoke", "fast", "crashloopbackoff", "pod", "mock"],
+    "mock_profile": "crashloop-app-exception",
+    "issue": {
+      "issueType": "CrashLoopBackOff",
+      "severity": "High",
+      "resourceType": "Pod",
+      "namespace": "default",
+      "resourceName": "api-2",
+      "container": "api",
+      "unhealthySince": "02h 00m",
+      "unhealthyTimespan": 7200,
+      "message": "Container is repeatedly crashing."
+    },
+    "expected_diagnosis": "The application process exits because of an unhandled runtime exception.",
+    "expected_primary_tools": [
+      "functions.get_pod_restart_count",
+      "functions.get_previous_container_logs",
+      "functions.get_container_last_state"
+    ],
+    "allowed_extra_tools": ["functions.get_pod_events"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Restart count is increasing.",
+      "Previous logs contain an application exception.",
+      "Last state shows terminated with non-zero exit code."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The API container is crash looping due to an unhandled application exception.",
+      "agent_tool_sequence": [
+        "functions.get_pod_restart_count",
+        "functions.get_previous_container_logs",
+        "functions.get_container_last_state"
+      ],
+      "agent_thought_chain": [
+        "CrashLoopBackOff requires confirming restarts first.",
+        "Previous container logs should show why the last process exited.",
+        "Logs show an exception and the last state confirms a non-zero exit, so the app exception is the root cause."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "crashloop-missing-config-env",
+    "tags": ["fast", "crashloopbackoff", "pod", "mock"],
+    "mock_profile": "crashloop-missing-config-env",
+    "issue": {
+      "issueType": "CrashLoopBackOff",
+      "severity": "High",
+      "resourceType": "Pod",
+      "namespace": "orders",
+      "resourceName": "orders-api-58b7",
+      "container": "orders-api",
+      "unhealthySince": "01h 12m",
+      "unhealthyTimespan": 4320,
+      "message": "Application exits immediately after startup."
+    },
+    "expected_diagnosis": "The container crashes because a required environment variable or ConfigMap entry is missing.",
+    "expected_primary_tools": [
+      "functions.get_previous_container_logs",
+      "functions.get_workload_yaml",
+      "functions.get_configmap_details"
+    ],
+    "allowed_extra_tools": ["functions.get_pod_restart_count"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Logs report missing required configuration.",
+      "Workload references a ConfigMap or env key.",
+      "The referenced key is absent."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "A required ConfigMap key used for environment configuration is missing, causing startup failure.",
+      "agent_tool_sequence": [
+        "functions.get_previous_container_logs",
+        "functions.get_workload_yaml",
+        "functions.get_configmap_details"
+      ],
+      "agent_thought_chain": [
+        "The fastest signal for a crash loop is previous container logs.",
+        "Logs identify a missing configuration variable, so inspect env wiring in the workload.",
+        "The referenced ConfigMap lacks the required key, explaining the crash."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "crashloop-bad-entrypoint",
+    "tags": ["fast", "crashloopbackoff", "pod", "mock"],
+    "mock_profile": "crashloop-bad-entrypoint",
+    "issue": {
+      "issueType": "CrashLoopBackOff",
+      "severity": "High",
+      "resourceType": "Pod",
+      "namespace": "batch",
+      "resourceName": "job-runner-74d4",
+      "container": "runner",
+      "unhealthySince": "00h 37m",
+      "unhealthyTimespan": 2220,
+      "message": "Container exits with command not found."
+    },
+    "expected_diagnosis": "The container command or entrypoint is invalid for the image.",
+    "expected_primary_tools": ["functions.get_previous_container_logs", "functions.get_workload_yaml"],
+    "allowed_extra_tools": ["functions.get_container_last_state"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Logs contain command not found.",
+      "Workload command overrides the image entrypoint with the bad command."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The workload overrides the container command with a command that is not present in the image.",
+      "agent_tool_sequence": ["functions.get_previous_container_logs", "functions.get_workload_yaml"],
+      "agent_thought_chain": [
+        "Check previous logs to see why the process exits.",
+        "The logs show command not found, so inspect the workload command.",
+        "The workload command override is invalid for the image."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "crashloop-dependency-connection-refused",
+    "tags": ["fast", "crashloopbackoff", "pod", "mock"],
+    "mock_profile": "crashloop-dependency-connection-refused",
+    "issue": {
+      "issueType": "CrashLoopBackOff",
+      "severity": "High",
+      "resourceType": "Pod",
+      "namespace": "inventory",
+      "resourceName": "inventory-api-679f",
+      "container": "inventory-api",
+      "unhealthySince": "01h 05m",
+      "unhealthyTimespan": 3900,
+      "message": "Service exits after failing to connect to database."
+    },
+    "expected_diagnosis": "The application crashes because its required database dependency is refusing connections.",
+    "expected_primary_tools": [
+      "functions.get_previous_container_logs",
+      "functions.get_service_endpoints",
+      "functions.get_network_policy"
+    ],
+    "allowed_extra_tools": ["functions.get_workload_yaml"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Logs show database connection refused.",
+      "Database service endpoints are missing or unreachable.",
+      "Network policy blocks the dependency path or endpoint is absent."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The API exits because it cannot connect to the database dependency.",
+      "agent_tool_sequence": [
+        "functions.get_previous_container_logs",
+        "functions.get_service_endpoints",
+        "functions.get_network_policy"
+      ],
+      "agent_thought_chain": [
+        "Previous logs identify the failure mode of the crash.",
+        "The logs show database connection refused, so check whether the service has endpoints.",
+        "Endpoint and network checks show the dependency path is unavailable, causing startup failure."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "oomkilled-memory-limit-too-low",
+    "tags": ["fast", "oomkilled", "pod", "mock"],
+    "mock_profile": "oomkilled-memory-limit-too-low",
+    "issue": {
+      "issueType": "OOMKilled",
+      "severity": "High",
+      "resourceType": "Pod",
+      "namespace": "analytics",
+      "resourceName": "etl-worker-0",
+      "container": "etl-worker",
+      "unhealthySince": "03h 10m",
+      "unhealthyTimespan": 11400,
+      "message": "Container terminated with exit code 137."
+    },
+    "expected_diagnosis": "The container is being OOMKilled because its memory limit is too low for workload usage.",
+    "expected_primary_tools": [
+      "functions.get_container_last_state",
+      "functions.get_pod_resource_usage",
+      "functions.get_workload_yaml"
+    ],
+    "allowed_extra_tools": ["functions.get_previous_container_logs"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Last state reason is OOMKilled with exit code 137.",
+      "Memory usage approaches or exceeds configured limit.",
+      "Workload has a low memory limit."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The workload memory limit is too low and the container is being killed by the kernel OOM killer.",
+      "agent_tool_sequence": [
+        "functions.get_container_last_state",
+        "functions.get_pod_resource_usage",
+        "functions.get_workload_yaml"
+      ],
+      "agent_thought_chain": [
+        "Exit code 137 points to OOMKilled, so confirm the last container state.",
+        "Resource usage should be compared with the configured limit.",
+        "The limit is below observed memory demand, causing OOM kills."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "pending-insufficient-memory",
+    "tags": ["smoke", "fast", "pending", "pod", "mock"],
+    "mock_profile": "pending-insufficient-memory",
+    "issue": {
+      "issueType": "Pending",
+      "severity": "Warning",
+      "resourceType": "Pod",
+      "namespace": "default",
+      "resourceName": "worker-7",
+      "container": "worker",
+      "unhealthySince": "00h 50m",
+      "unhealthyTimespan": 3000,
+      "message": "Pod is pending because no nodes have enough memory."
+    },
+    "expected_diagnosis": "The pod cannot be scheduled because no node has enough available memory for its request.",
+    "expected_primary_tools": [
+      "functions.get_pod_scheduling_events",
+      "functions.get_pod_resource_requests",
+      "functions.get_node_allocatable_resources"
+    ],
+    "allowed_extra_tools": ["functions.get_namespace_resource_quota"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Scheduler event says insufficient memory.",
+      "Pod memory request is high.",
+      "No node has enough allocatable memory remaining."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The pod is unschedulable because its memory request cannot fit on any node.",
+      "agent_tool_sequence": [
+        "functions.get_pod_scheduling_events",
+        "functions.get_pod_resource_requests",
+        "functions.get_node_allocatable_resources"
+      ],
+      "agent_thought_chain": [
+        "Pending pods should start with scheduler events.",
+        "Events cite insufficient memory, so compare pod requests with node capacity.",
+        "The request exceeds available allocatable memory on all nodes."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "pending-insufficient-cpu",
+    "tags": ["fast", "pending", "pod", "mock"],
+    "mock_profile": "pending-insufficient-cpu",
+    "issue": {
+      "issueType": "Pending",
+      "severity": "Warning",
+      "resourceType": "Pod",
+      "namespace": "compute",
+      "resourceName": "cpu-job-22",
+      "container": "job",
+      "unhealthySince": "00h 33m",
+      "unhealthyTimespan": 1980,
+      "message": "Pod is unschedulable due to insufficient CPU."
+    },
+    "expected_diagnosis": "The pod cannot be scheduled because its CPU request exceeds available node CPU.",
+    "expected_primary_tools": [
+      "functions.get_pod_scheduling_events",
+      "functions.get_pod_resource_requests",
+      "functions.get_node_allocatable_resources"
+    ],
+    "allowed_extra_tools": [],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Scheduler event says insufficient cpu.",
+      "Pod CPU request is larger than remaining node CPU."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The pod CPU request cannot fit on any node with available allocatable CPU.",
+      "agent_tool_sequence": [
+        "functions.get_pod_scheduling_events",
+        "functions.get_pod_resource_requests",
+        "functions.get_node_allocatable_resources"
+      ],
+      "agent_thought_chain": [
+        "Scheduler events explain why a pending pod is unschedulable.",
+        "The event says insufficient CPU, so validate requests and node allocatable CPU.",
+        "No node has enough remaining CPU for the request."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "pending-node-taint-missing-toleration",
+    "tags": ["fast", "pending", "pod", "mock"],
+    "mock_profile": "pending-node-taint-missing-toleration",
+    "issue": {
+      "issueType": "Pending",
+      "severity": "Warning",
+      "resourceType": "Pod",
+      "namespace": "platform",
+      "resourceName": "gpu-worker-3",
+      "container": "worker",
+      "unhealthySince": "00h 44m",
+      "unhealthyTimespan": 2640,
+      "message": "Pod does not tolerate node taint."
+    },
+    "expected_diagnosis": "The pod lacks a toleration required for the tainted target nodes.",
+    "expected_primary_tools": [
+      "functions.get_pod_scheduling_events",
+      "functions.get_workload_yaml",
+      "functions.get_node_taints"
+    ],
+    "allowed_extra_tools": [],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Scheduler event reports untolerated taint.",
+      "Workload has no matching toleration.",
+      "Candidate nodes carry the taint."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The pod is pending because it does not tolerate the taint on available nodes.",
+      "agent_tool_sequence": [
+        "functions.get_pod_scheduling_events",
+        "functions.get_workload_yaml",
+        "functions.get_node_taints"
+      ],
+      "agent_thought_chain": [
+        "Scheduler events identify taint and toleration problems.",
+        "The event cites an untolerated taint, so inspect workload tolerations.",
+        "The workload lacks the matching toleration for the tainted nodes."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "pending-pvc-unbound",
+    "tags": ["fast", "pending", "pod", "mock"],
+    "mock_profile": "pending-pvc-unbound",
+    "issue": {
+      "issueType": "Pending",
+      "severity": "Warning",
+      "resourceType": "Pod",
+      "namespace": "stateful",
+      "resourceName": "db-0",
+      "container": "db",
+      "unhealthySince": "01h 20m",
+      "unhealthyTimespan": 4800,
+      "message": "Pod is waiting for PersistentVolumeClaim binding."
+    },
+    "expected_diagnosis": "The pod is pending because its PersistentVolumeClaim is unbound.",
+    "expected_primary_tools": [
+      "functions.get_pod_scheduling_events",
+      "functions.get_workload_yaml",
+      "functions.get_pvc_status"
+    ],
+    "allowed_extra_tools": ["functions.get_storage_class"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Scheduler event says pod has unbound immediate PersistentVolumeClaims.",
+      "Workload references a PVC.",
+      "PVC status is Pending or unbound."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The pod cannot schedule because the referenced PVC is still unbound.",
+      "agent_tool_sequence": [
+        "functions.get_pod_scheduling_events",
+        "functions.get_workload_yaml",
+        "functions.get_pvc_status"
+      ],
+      "agent_thought_chain": [
+        "Pending events should reveal storage binding failures.",
+        "The event mentions an unbound PVC, so inspect the workload volume reference.",
+        "The PVC is pending, which blocks scheduling."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "pending-namespace-quota-exceeded",
+    "tags": ["fast", "pending", "pod", "mock"],
+    "mock_profile": "pending-namespace-quota-exceeded",
+    "issue": {
+      "issueType": "Pending",
+      "severity": "Warning",
+      "resourceType": "Pod",
+      "namespace": "sandbox",
+      "resourceName": "test-api-11",
+      "container": "api",
+      "unhealthySince": "00h 28m",
+      "unhealthyTimespan": 1680,
+      "message": "Pod creation is blocked by namespace quota."
+    },
+    "expected_diagnosis": "The namespace ResourceQuota is exhausted, preventing the pod from being admitted or scheduled.",
+    "expected_primary_tools": [
+      "functions.get_pod_scheduling_events",
+      "functions.get_namespace_resource_quota",
+      "functions.get_pod_resource_requests"
+    ],
+    "allowed_extra_tools": [],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Event references exceeded quota.",
+      "Namespace quota hard limit is reached.",
+      "Pod request contributes to the quota breach."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The pod is blocked because the namespace ResourceQuota is exhausted.",
+      "agent_tool_sequence": [
+        "functions.get_pod_scheduling_events",
+        "functions.get_namespace_resource_quota",
+        "functions.get_pod_resource_requests"
+      ],
+      "agent_thought_chain": [
+        "Scheduling or admission events identify quota issues.",
+        "The event says quota exceeded, so inspect namespace quota.",
+        "The quota is at its hard limit and the pod request would exceed it."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "containercreating-volume-mount-secret-missing",
+    "tags": ["fast", "containercreating", "pod", "mock"],
+    "mock_profile": "containercreating-volume-mount-secret-missing",
+    "issue": {
+      "issueType": "ContainerCreating",
+      "severity": "Warning",
+      "resourceType": "Pod",
+      "namespace": "web",
+      "resourceName": "frontend-66df",
+      "container": "frontend",
+      "unhealthySince": "00h 31m",
+      "unhealthyTimespan": 1860,
+      "message": "Container is stuck creating due to volume mount failure."
+    },
+    "expected_diagnosis": "A Secret volume referenced by the pod is missing, causing volume mount setup to fail.",
+    "expected_primary_tools": [
+      "functions.get_pod_events",
+      "functions.get_workload_yaml",
+      "functions.get_secret_exists"
+    ],
+    "allowed_extra_tools": [],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Events contain FailedMount.",
+      "Workload references a secret volume.",
+      "Referenced Secret does not exist."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The pod is stuck because a referenced Secret volume is missing.",
+      "agent_tool_sequence": [
+        "functions.get_pod_events",
+        "functions.get_workload_yaml",
+        "functions.get_secret_exists"
+      ],
+      "agent_thought_chain": [
+        "ContainerCreating stalls are usually explained by pod events.",
+        "The event shows FailedMount for a secret, so inspect the workload volume reference.",
+        "The referenced secret does not exist."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "containercreating-cni-sandbox-failure",
+    "tags": ["fast", "containercreating", "pod", "mock"],
+    "mock_profile": "containercreating-cni-sandbox-failure",
+    "issue": {
+      "issueType": "ContainerCreating",
+      "severity": "High",
+      "resourceType": "Pod",
+      "namespace": "default",
+      "resourceName": "api-9",
+      "container": "api",
+      "unhealthySince": "00h 19m",
+      "unhealthyTimespan": 1140,
+      "message": "Pod sandbox creation is failing."
+    },
+    "expected_diagnosis": "The node CNI plugin is failing to create the pod sandbox network.",
+    "expected_primary_tools": [
+      "functions.get_pod_events",
+      "functions.get_node_network_status",
+      "functions.get_cni_plugin_logs"
+    ],
+    "allowed_extra_tools": [],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Events mention FailedCreatePodSandBox.",
+      "Node network status is degraded.",
+      "CNI logs contain plugin errors."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "CNI plugin errors on the node prevent pod sandbox network creation.",
+      "agent_tool_sequence": [
+        "functions.get_pod_events",
+        "functions.get_node_network_status",
+        "functions.get_cni_plugin_logs"
+      ],
+      "agent_thought_chain": [
+        "Pod sandbox errors appear in pod events.",
+        "The event points at network sandbox creation, so inspect node network health.",
+        "CNI logs confirm the plugin is failing."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "node-not-ready-kubelet-down",
+    "tags": ["fast", "nodenotready", "node", "mock"],
+    "mock_profile": "node-not-ready-kubelet-down",
+    "issue": {
+      "issueType": "NodeNotReady",
+      "severity": "Critical",
+      "resourceType": "Node",
+      "namespace": null,
+      "resourceName": "aks-nodepool1-12345678-vmss000001",
+      "container": null,
+      "unhealthySince": "00h 47m",
+      "unhealthyTimespan": 2820,
+      "message": "Node has been NotReady for more than 45 minutes."
+    },
+    "expected_diagnosis": "The node is NotReady because kubelet is not running or not posting status.",
+    "expected_primary_tools": [
+      "functions.get_node_conditions",
+      "functions.get_kubelet_status",
+      "functions.get_node_events"
+    ],
+    "allowed_extra_tools": ["functions.get_node_network_status"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Node Ready condition is False or Unknown.",
+      "Kubelet status is stopped or unhealthy.",
+      "Node events show status update failures."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The node is NotReady because kubelet is unhealthy and no longer posting node status.",
+      "agent_tool_sequence": [
+        "functions.get_node_conditions",
+        "functions.get_kubelet_status",
+        "functions.get_node_events"
+      ],
+      "agent_thought_chain": [
+        "NodeNotReady starts with node conditions.",
+        "The Ready condition is Unknown, so check kubelet health.",
+        "Kubelet is unhealthy and node events show missed status updates."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "deployment-degraded-crashing-pods",
+    "tags": ["fast", "deploymentdegraded", "deployment", "mock"],
+    "mock_profile": "deployment-degraded-crashing-pods",
+    "issue": {
+      "issueType": "DeploymentDegraded",
+      "severity": "High",
+      "resourceType": "Deployment",
+      "namespace": "default",
+      "resourceName": "api",
+      "container": null,
+      "unhealthySince": "01h 40m",
+      "unhealthyTimespan": 6000,
+      "message": "Deployment has unavailable replicas."
+    },
+    "expected_diagnosis": "The deployment is degraded because its new pods are crash looping.",
+    "expected_primary_tools": [
+      "functions.get_deployment_status",
+      "functions.get_replicaset_pods",
+      "functions.get_previous_container_logs"
+    ],
+    "allowed_extra_tools": ["functions.get_pod_events"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Deployment status shows unavailable replicas.",
+      "ReplicaSet pods are in CrashLoopBackOff.",
+      "Previous logs identify the crash cause."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The deployment has unavailable replicas because the new ReplicaSet pods are crash looping.",
+      "agent_tool_sequence": [
+        "functions.get_deployment_status",
+        "functions.get_replicaset_pods",
+        "functions.get_previous_container_logs"
+      ],
+      "agent_thought_chain": [
+        "Start with deployment status to determine why replicas are unavailable.",
+        "The ReplicaSet pods are crash looping, so inspect previous logs.",
+        "Pod crashes explain the unavailable deployment replicas."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "deployment-rollout-progress-deadline",
+    "tags": ["fast", "deploymentdegraded", "deployment", "mock"],
+    "mock_profile": "deployment-rollout-progress-deadline",
+    "issue": {
+      "issueType": "DeploymentDegraded",
+      "severity": "High",
+      "resourceType": "Deployment",
+      "namespace": "checkout",
+      "resourceName": "checkout-api",
+      "container": null,
+      "unhealthySince": "02h 25m",
+      "unhealthyTimespan": 8700,
+      "message": "Deployment rollout exceeded its progress deadline."
+    },
+    "expected_diagnosis": "The deployment rollout is stuck because the new ReplicaSet never becomes available before the progress deadline.",
+    "expected_primary_tools": [
+      "functions.get_deployment_status",
+      "functions.get_rollout_history",
+      "functions.get_replicaset_pods"
+    ],
+    "allowed_extra_tools": ["functions.get_pod_events"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Deployment condition shows ProgressDeadlineExceeded.",
+      "Rollout history identifies the new revision.",
+      "New ReplicaSet pods are not becoming ready."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The rollout is stuck because the new ReplicaSet fails to become available before the progress deadline.",
+      "agent_tool_sequence": [
+        "functions.get_deployment_status",
+        "functions.get_rollout_history",
+        "functions.get_replicaset_pods"
+      ],
+      "agent_thought_chain": [
+        "Deployment degradation should be checked through deployment conditions first.",
+        "ProgressDeadlineExceeded points to a stuck rollout, so inspect rollout history.",
+        "The new ReplicaSet pods are not ready, causing the deadline failure."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "readiness-probe-dependency-timeout",
+    "tags": ["fast", "probefailure", "pod", "mock"],
+    "mock_profile": "readiness-probe-dependency-timeout",
+    "issue": {
+      "issueType": "ReadinessProbeFailed",
+      "severity": "Warning",
+      "resourceType": "Pod",
+      "namespace": "search",
+      "resourceName": "search-api-5b9d",
+      "container": "search-api",
+      "unhealthySince": "00h 36m",
+      "unhealthyTimespan": 2160,
+      "message": "Readiness probe is failing."
+    },
+    "expected_diagnosis": "The readiness endpoint times out because the application cannot reach a required dependency.",
+    "expected_primary_tools": [
+      "functions.get_pod_events",
+      "functions.get_container_logs",
+      "functions.get_service_endpoints"
+    ],
+    "allowed_extra_tools": ["functions.get_workload_yaml"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Pod events show readiness probe timeout.",
+      "Logs show dependency timeout.",
+      "Dependency service endpoints are unavailable."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "Readiness fails because the application readiness endpoint waits on an unavailable dependency.",
+      "agent_tool_sequence": [
+        "functions.get_pod_events",
+        "functions.get_container_logs",
+        "functions.get_service_endpoints"
+      ],
+      "agent_thought_chain": [
+        "Probe failures are visible in pod events.",
+        "The event shows readiness timeout, so inspect current logs.",
+        "Logs and endpoints show a required dependency is unavailable."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "liveness-probe-wrong-path",
+    "tags": ["fast", "probefailure", "pod", "mock"],
+    "mock_profile": "liveness-probe-wrong-path",
+    "issue": {
+      "issueType": "LivenessProbeFailed",
+      "severity": "High",
+      "resourceType": "Pod",
+      "namespace": "web",
+      "resourceName": "frontend-789c",
+      "container": "frontend",
+      "unhealthySince": "00h 58m",
+      "unhealthyTimespan": 3480,
+      "message": "Liveness probe is restarting the container."
+    },
+    "expected_diagnosis": "The liveness probe path is misconfigured and returns 404, causing unnecessary restarts.",
+    "expected_primary_tools": [
+      "functions.get_pod_events",
+      "functions.get_workload_yaml",
+      "functions.get_container_logs"
+    ],
+    "allowed_extra_tools": [],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Events show liveness probe HTTP 404.",
+      "Workload liveness path does not match the app route.",
+      "Application logs show requests to the wrong health path."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The liveness probe uses the wrong HTTP path and receives 404 responses, causing restarts.",
+      "agent_tool_sequence": [
+        "functions.get_pod_events",
+        "functions.get_workload_yaml",
+        "functions.get_container_logs"
+      ],
+      "agent_thought_chain": [
+        "Pod events show the exact probe failure.",
+        "The event reports HTTP 404, so inspect the probe path in workload YAML.",
+        "Logs confirm the app does not serve the configured path."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "service-no-endpoints-selector-mismatch",
+    "tags": ["fast", "servicedegraded", "service", "mock"],
+    "mock_profile": "service-no-endpoints-selector-mismatch",
+    "issue": {
+      "issueType": "ServiceDegraded",
+      "severity": "High",
+      "resourceType": "Other",
+      "namespace": "default",
+      "resourceName": "api-service",
+      "container": null,
+      "unhealthySince": "01h 15m",
+      "unhealthyTimespan": 4500,
+      "message": "Service has no ready endpoints."
+    },
+    "expected_diagnosis": "The Service selector does not match the pod labels, so no endpoints are selected.",
+    "expected_primary_tools": [
+      "functions.get_service_endpoints",
+      "functions.get_service_yaml",
+      "functions.get_replicaset_pods"
+    ],
+    "allowed_extra_tools": [],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Service endpoint list is empty.",
+      "Service selector labels differ from pod labels.",
+      "Pods exist and are ready but not selected."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The service selector does not match the backing pod labels, leaving the service with no endpoints.",
+      "agent_tool_sequence": [
+        "functions.get_service_endpoints",
+        "functions.get_service_yaml",
+        "functions.get_replicaset_pods"
+      ],
+      "agent_thought_chain": [
+        "A service with no traffic should first check endpoints.",
+        "Endpoints are empty, so inspect the service selector.",
+        "Pods exist but labels do not match the selector."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "networkpolicy-blocks-service-traffic",
+    "tags": ["fast", "network", "service", "mock"],
+    "mock_profile": "networkpolicy-blocks-service-traffic",
+    "issue": {
+      "issueType": "ServiceDegraded",
+      "severity": "High",
+      "resourceType": "Other",
+      "namespace": "payments",
+      "resourceName": "payments-api",
+      "container": null,
+      "unhealthySince": "00h 46m",
+      "unhealthyTimespan": 2760,
+      "message": "Clients cannot reach the service even though endpoints are ready."
+    },
+    "expected_diagnosis": "A NetworkPolicy blocks client traffic to the service pods.",
+    "expected_primary_tools": [
+      "functions.get_service_endpoints",
+      "functions.get_network_policy",
+      "functions.get_pod_labels"
+    ],
+    "allowed_extra_tools": ["functions.get_service_yaml"],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Service endpoints are ready.",
+      "NetworkPolicy denies ingress from client namespace or labels.",
+      "Pod labels match the policy target."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "A NetworkPolicy is blocking ingress from clients to the service pods.",
+      "agent_tool_sequence": [
+        "functions.get_service_endpoints",
+        "functions.get_network_policy",
+        "functions.get_pod_labels"
+      ],
+      "agent_thought_chain": [
+        "Ready endpoints mean the service has backends, so connectivity policy is the next check.",
+        "The NetworkPolicy selects the pods and denies client ingress.",
+        "Pod labels confirm the policy applies to the affected service pods."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "hpa-maxed-insufficient-replicas",
+    "tags": ["fast", "scaling", "deployment", "mock"],
+    "mock_profile": "hpa-maxed-insufficient-replicas",
+    "issue": {
+      "issueType": "DeploymentDegraded",
+      "severity": "Warning",
+      "resourceType": "Deployment",
+      "namespace": "api",
+      "resourceName": "gateway",
+      "container": null,
+      "unhealthySince": "01h 08m",
+      "unhealthyTimespan": 4080,
+      "message": "Deployment is overloaded and HPA is at max replicas."
+    },
+    "expected_diagnosis": "The HPA has reached maxReplicas, leaving the deployment under-provisioned for current load.",
+    "expected_primary_tools": [
+      "functions.get_deployment_status",
+      "functions.get_hpa_status",
+      "functions.get_pod_resource_usage"
+    ],
+    "allowed_extra_tools": [],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Deployment has overloaded pods or unavailable replicas.",
+      "HPA current replicas equals maxReplicas.",
+      "Pod CPU or memory utilization remains above target."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The HPA is capped at maxReplicas while utilization remains above target, so the deployment is under-provisioned.",
+      "agent_tool_sequence": [
+        "functions.get_deployment_status",
+        "functions.get_hpa_status",
+        "functions.get_pod_resource_usage"
+      ],
+      "agent_thought_chain": [
+        "Deployment overload should be correlated with autoscaling state.",
+        "HPA status shows it is at max replicas.",
+        "Resource usage remains above target, indicating the cap is the scaling bottleneck."
+      ],
+      "termination_status": "completed"
+    }
+  },
+  {
+    "id": "ingress-tls-secret-expired",
+    "tags": ["fast", "ingress", "mock"],
+    "mock_profile": "ingress-tls-secret-expired",
+    "issue": {
+      "issueType": "IngressDegraded",
+      "severity": "High",
+      "resourceType": "Other",
+      "namespace": "web",
+      "resourceName": "public-ingress",
+      "container": null,
+      "unhealthySince": "04h 00m",
+      "unhealthyTimespan": 14400,
+      "message": "HTTPS clients report certificate expiration."
+    },
+    "expected_diagnosis": "The TLS Secret used by the Ingress contains an expired certificate.",
+    "expected_primary_tools": [
+      "functions.get_ingress_status",
+      "functions.get_ingress_yaml",
+      "functions.get_tls_secret_certificate"
+    ],
+    "allowed_extra_tools": [],
+    "forbidden_tools": [],
+    "expected_evidence": [
+      "Ingress references a TLS Secret.",
+      "Certificate notAfter date is in the past.",
+      "Ingress status otherwise routes to healthy service."
+    ],
+    "recorded_agent_result": {
+      "agent_diagnosis": "The ingress TLS secret contains an expired certificate.",
+      "agent_tool_sequence": [
+        "functions.get_ingress_status",
+        "functions.get_ingress_yaml",
+        "functions.get_tls_secret_certificate"
+      ],
+      "agent_thought_chain": [
+        "Certificate errors should start with ingress status and TLS configuration.",
+        "The ingress references a TLS secret, so inspect the certificate.",
+        "The certificate has expired."
+      ],
+      "termination_status": "completed"
+    }
+  }
+]

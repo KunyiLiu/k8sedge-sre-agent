@@ -358,7 +358,7 @@ def get_skills(issue_type: str, is_mock: bool):
 @router.websocket("/workflow/ws")
 async def workflow_ws(
     ws: WebSocket,
-    is_mock: bool = False  # FastAPI injects this from the query string
+    is_mock: bool = True  # FastAPI injects this from the query string
 ):
     await ws.accept()
     project_client: Optional[AIProjectClient] = None

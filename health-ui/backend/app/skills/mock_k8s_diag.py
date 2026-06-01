@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import List, Callable, Optional
+from typing import Any, Dict, List, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +16,68 @@ class MockK8sDiag:
         """No-op loader used in tests to mirror k8s config initialization."""
         logger.info("_load_kube_config() called (no-op)")
         return None
+
+    def _fixture_response(self, tool_name: str, **kwargs: Any) -> str:
+        """Return deterministic scenario-shaped data for evaluation profiles."""
+
+        profile = self.profile
+        data: Dict[str, Any] = {
+            "tool": tool_name,
+            "profile": profile,
+            "inputs": kwargs,
+            "observations": [],
+        }
+        if "manifest-unknown" in profile:
+            data["observations"] = ["manifest unknown", "image tag not found in registry"]
+        elif "secret-not-found" in profile:
+            data["observations"] = ["referenced imagePullSecret is missing"]
+        elif "dns-failure" in profile:
+            data["observations"] = ["registry hostname lookup failed from node"]
+        elif "missing-config" in profile:
+            data["observations"] = ["required environment configuration key is missing"]
+        elif "bad-entrypoint" in profile:
+            data["observations"] = ["configured command was not found in the image"]
+        elif "connection-refused" in profile:
+            data["observations"] = ["database dependency refused connections"]
+        elif "oomkilled" in profile:
+            data["observations"] = ["last state OOMKilled", "memory usage reached configured limit"]
+        elif "insufficient-memory" in profile:
+            data["observations"] = ["0 nodes have enough memory for the pod request"]
+        elif "insufficient-cpu" in profile:
+            data["observations"] = ["0 nodes have enough cpu for the pod request"]
+        elif "taint" in profile:
+            data["observations"] = ["pod does not tolerate node taint"]
+        elif "pvc-unbound" in profile:
+            data["observations"] = ["persistent volume claim is Pending"]
+        elif "quota" in profile:
+            data["observations"] = ["namespace resource quota is exhausted"]
+        elif "volume-mount-secret" in profile:
+            data["observations"] = ["FailedMount", "referenced Secret does not exist"]
+        elif "cni-sandbox" in profile:
+            data["observations"] = ["FailedCreatePodSandBox", "CNI plugin error"]
+        elif "kubelet-down" in profile:
+            data["observations"] = ["Ready condition Unknown", "kubelet is unhealthy"]
+        elif "crashing-pods" in profile:
+            data["observations"] = ["deployment has unavailable replicas", "replicaset pods are CrashLoopBackOff"]
+        elif "progress-deadline" in profile:
+            data["observations"] = ["ProgressDeadlineExceeded", "new ReplicaSet pods are not ready"]
+        elif "readiness-probe" in profile:
+            data["observations"] = ["readiness probe timeout", "dependency endpoints unavailable"]
+        elif "liveness-probe" in profile:
+            data["observations"] = ["liveness probe returned HTTP 404", "probe path is misconfigured"]
+        elif "selector-mismatch" in profile:
+            data["observations"] = ["service endpoints are empty", "selector does not match pod labels"]
+        elif "networkpolicy" in profile:
+            data["observations"] = ["service endpoints are ready", "NetworkPolicy blocks client ingress"]
+        elif "hpa-maxed" in profile:
+            data["observations"] = ["HPA is at maxReplicas", "utilization remains above target"]
+        elif "tls-secret-expired" in profile:
+            data["observations"] = ["ingress TLS certificate is expired"]
+        elif "app-exception" in profile or "crashloop" in profile:
+            data["observations"] = ["previous logs contain application exception", "last state exit code is non-zero"]
+        elif "imagepullbackoff" in profile:
+            data["observations"] = ["ErrImagePull", "ImagePullBackOff", "service account has no imagePullSecrets"]
+        return json.dumps(data, ensure_ascii=False, indent=2)
 
     def get_pod_diagnostics(self, name: str, namespace: str) -> str:
         """Fetch status, restart counts, last exit code/reason, and recent/current/previous logs.
@@ -269,6 +331,87 @@ class MockK8sDiag:
         ]
         return json.dumps(data, ensure_ascii=False, indent=2)
 
+    def get_pod_restart_count(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_pod_restart_count", name=name, namespace=namespace)
+
+    def get_previous_container_logs(self, name: str, namespace: str, container: Optional[str] = None) -> str:
+        return self._fixture_response("get_previous_container_logs", name=name, namespace=namespace, container=container)
+
+    def get_container_logs(self, name: str, namespace: str, container: Optional[str] = None) -> str:
+        return self._fixture_response("get_container_logs", name=name, namespace=namespace, container=container)
+
+    def get_container_last_state(self, name: str, namespace: str, container: Optional[str] = None) -> str:
+        return self._fixture_response("get_container_last_state", name=name, namespace=namespace, container=container)
+
+    def get_configmap_details(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_configmap_details", name=name, namespace=namespace)
+
+    def get_service_endpoints(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_service_endpoints", name=name, namespace=namespace)
+
+    def get_network_policy(self, namespace: str, name: Optional[str] = None) -> str:
+        return self._fixture_response("get_network_policy", namespace=namespace, name=name)
+
+    def get_pod_resource_usage(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_pod_resource_usage", name=name, namespace=namespace)
+
+    def get_pod_resource_requests(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_pod_resource_requests", name=name, namespace=namespace)
+
+    def get_node_allocatable_resources(self) -> str:
+        return self._fixture_response("get_node_allocatable_resources")
+
+    def get_node_taints(self) -> str:
+        return self._fixture_response("get_node_taints")
+
+    def get_pvc_status(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_pvc_status", name=name, namespace=namespace)
+
+    def get_storage_class(self, name: str) -> str:
+        return self._fixture_response("get_storage_class", name=name)
+
+    def get_node_network_status(self, node: Optional[str] = None) -> str:
+        return self._fixture_response("get_node_network_status", node=node)
+
+    def get_cni_plugin_logs(self, node: Optional[str] = None) -> str:
+        return self._fixture_response("get_cni_plugin_logs", node=node)
+
+    def get_node_conditions(self, node: str) -> str:
+        return self._fixture_response("get_node_conditions", node=node)
+
+    def get_kubelet_status(self, node: str) -> str:
+        return self._fixture_response("get_kubelet_status", node=node)
+
+    def get_node_events(self, node: str) -> str:
+        return self._fixture_response("get_node_events", node=node)
+
+    def get_deployment_status(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_deployment_status", name=name, namespace=namespace)
+
+    def get_replicaset_pods(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_replicaset_pods", name=name, namespace=namespace)
+
+    def get_rollout_history(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_rollout_history", name=name, namespace=namespace)
+
+    def get_service_yaml(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_service_yaml", name=name, namespace=namespace)
+
+    def get_pod_labels(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_pod_labels", name=name, namespace=namespace)
+
+    def get_hpa_status(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_hpa_status", name=name, namespace=namespace)
+
+    def get_ingress_status(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_ingress_status", name=name, namespace=namespace)
+
+    def get_ingress_yaml(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_ingress_yaml", name=name, namespace=namespace)
+
+    def get_tls_secret_certificate(self, name: str, namespace: str) -> str:
+        return self._fixture_response("get_tls_secret_certificate", name=name, namespace=namespace)
+
 
 def create_mock_tools(profile: Optional[str] = None) -> List[Callable]:
     """Return bound mock functions to inject as tools for agents."""
@@ -286,4 +429,31 @@ def create_mock_tools(profile: Optional[str] = None) -> List[Callable]:
         mock.get_pvc_details,
         mock.get_namespace_resource_quota,
         mock.get_namespace_limit_ranges,
+        mock.get_pod_restart_count,
+        mock.get_previous_container_logs,
+        mock.get_container_logs,
+        mock.get_container_last_state,
+        mock.get_configmap_details,
+        mock.get_service_endpoints,
+        mock.get_network_policy,
+        mock.get_pod_resource_usage,
+        mock.get_pod_resource_requests,
+        mock.get_node_allocatable_resources,
+        mock.get_node_taints,
+        mock.get_pvc_status,
+        mock.get_storage_class,
+        mock.get_node_network_status,
+        mock.get_cni_plugin_logs,
+        mock.get_node_conditions,
+        mock.get_kubelet_status,
+        mock.get_node_events,
+        mock.get_deployment_status,
+        mock.get_replicaset_pods,
+        mock.get_rollout_history,
+        mock.get_service_yaml,
+        mock.get_pod_labels,
+        mock.get_hpa_status,
+        mock.get_ingress_status,
+        mock.get_ingress_yaml,
+        mock.get_tls_secret_certificate,
     ]
